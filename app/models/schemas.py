@@ -1,31 +1,7 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List, Annotated
+from typing import Optional, List
 from bson import ObjectId
-
-
-class PyObjectId(ObjectId):
-    @classmethod
-    def __get_pydantic_core_schema__(
-        cls, _source_type, _handler
-    ):
-        from pydantic_core import core_schema
-        return core_schema.no_info_after_validator_function(
-            cls.validate,
-            core_schema.str_schema(),
-            serialization=core_schema.to_string_ser_schema(),
-        )
-
-    @classmethod
-    def validate(cls, v):
-        if isinstance(v, ObjectId):
-            return v
-        if isinstance(v, str) and ObjectId.is_valid(v):
-            return ObjectId(v)
-        raise ValueError("Invalid ObjectId")
-
-    def __str__(self):
-        return str(self)
 
 
 class StatusUpdateBase(BaseModel):
@@ -39,7 +15,7 @@ class StatusUpdateCreate(StatusUpdateBase):
 
 
 class StatusUpdateResponse(StatusUpdateBase):
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    id: Optional[str] = Field(alias="_id", default=None)
 
     model_config = {
         "populate_by_name": True,
@@ -58,7 +34,7 @@ class ResponseTimeCreate(ResponseTimeBase):
 
 
 class ResponseTimeResponse(ResponseTimeBase):
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    id: Optional[str] = Field(alias="_id", default=None)
 
     model_config = {
         "populate_by_name": True,
@@ -85,7 +61,7 @@ class SystemInfoCreate(SystemInfoBase):
 
 
 class SystemInfoResponse(SystemInfoBase):
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    id: Optional[str] = Field(alias="_id", default=None)
 
     model_config = {
         "populate_by_name": True,
@@ -103,7 +79,7 @@ class HeartbeatCreate(HeartbeatBase):
 
 
 class HeartbeatResponse(HeartbeatBase):
-    id: Optional[PyObjectId] = Field(alias="_id", default=None)
+    id: Optional[str] = Field(alias="_id", default=None)
 
     model_config = {
         "populate_by_name": True,

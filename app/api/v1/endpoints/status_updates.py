@@ -33,6 +33,10 @@ async def create_status_update(
     created_status_update = await db.status_updates.find_one({"_id": result.inserted_id})
     print(f"DEBUG: Retrieved document: {created_status_update}")
     
+    # Convert ObjectId to string for response
+    if created_status_update and "_id" in created_status_update:
+        created_status_update["_id"] = str(created_status_update["_id"])
+    
     return StatusUpdateResponse(**created_status_update)
 
 
@@ -70,6 +74,9 @@ async def get_status_updates(
     status_updates = []
     async for doc in cursor:
         print(f"DEBUG GET: Found document: {doc}")
+        # Convert ObjectId to string
+        if doc and "_id" in doc:
+            doc["_id"] = str(doc["_id"])
         status_updates.append(StatusUpdateResponse(**doc))
     
     print(f"DEBUG GET: Returning {len(status_updates)} status updates")
