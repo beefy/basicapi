@@ -46,6 +46,8 @@ jobs:
     - name: Deploy to Cloud Run
       id: deploy
       uses: google-github-actions/deploy-cloudrun@v1
+      env:
+        ALLOWED_USERNAMES: ${{ secrets.ALLOWED_USERNAMES }}
       with:
         service: ${{ env.SERVICE }}
         region: ${{ env.REGION }}
@@ -54,7 +56,7 @@ jobs:
           MONGODB_URL=${{ secrets.MONGODB_URL }}
           DATABASE_NAME=${{ secrets.DATABASE_NAME }}
           SECRET_KEY=${{ secrets.SECRET_KEY }}
-          ALLOWED_USERNAMES='${{ secrets.ALLOWED_USERNAMES }}'
+          ALLOWED_USERNAMES=$ALLOWED_USERNAMES
         flags: |
           --allow-unauthenticated
           --port=8000
