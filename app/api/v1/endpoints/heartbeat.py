@@ -7,7 +7,7 @@ from ....models.schemas import (
     HeartbeatResponse,
     User
 )
-from ....core.deps import get_current_active_user
+from ....core.deps import get_current_user
 
 router = APIRouter()
 
@@ -15,7 +15,7 @@ router = APIRouter()
 @router.post("/", response_model=HeartbeatResponse)
 async def create_heartbeat(
     heartbeat: HeartbeatCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_user),
     db=Depends(get_database)
 ):
     """Store/update heartbeat (requires authentication)

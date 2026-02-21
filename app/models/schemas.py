@@ -133,20 +133,23 @@ class QueryParams(BaseModel):
 class APIKeyCreate(BaseModel):
     name: str = Field(..., description="Friendly name for the API key")
     description: Optional[str] = None
-    device_id: str = Field(..., description="Unique device fingerprint")
+    device_id: Optional[str] = Field(None, description="Device fingerprint (required for non-admin keys)")
+    is_admin: bool = Field(default=False, description="Whether this is an admin key")
 
 
 class APIKeyResponse(BaseModel):
     name: str
     key: str = Field(..., description="The actual API key (only shown once)")
     description: Optional[str] = None
-    device_id: str = Field(..., description="Device fingerprint this key is tied to")
+    device_id: Optional[str] = Field(None, description="Device fingerprint this key is tied to")
+    is_admin: bool = Field(default=False, description="Whether this is an admin key")
     created_at: datetime
 
 
 class APIKeyInfo(BaseModel):
     name: str
     description: Optional[str] = None
-    device_fingerprint: str = Field(..., description="Partial device fingerprint for identification")
+    device_fingerprint: Optional[str] = Field(None, description="Partial device fingerprint for identification")
+    is_admin: bool = Field(default=False, description="Whether this is an admin key")
     created_at: datetime
     last_used: Optional[datetime] = None

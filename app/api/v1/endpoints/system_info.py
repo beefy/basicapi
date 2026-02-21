@@ -7,7 +7,7 @@ from ....models.schemas import (
     SystemInfoResponse,
     User
 )
-from ....core.deps import get_current_active_user
+from ....core.deps import get_current_user
 
 router = APIRouter()
 
@@ -15,7 +15,7 @@ router = APIRouter()
 @router.post("/", response_model=SystemInfoResponse)
 async def create_system_info(
     system_info: SystemInfoCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_user),
     db=Depends(get_database)
 ):
     """Store system information (requires authentication)"""

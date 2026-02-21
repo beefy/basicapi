@@ -8,7 +8,7 @@ from ....models.schemas import (
     ResponseTimeStats,
     User
 )
-from ....core.deps import get_current_active_user
+from ....core.deps import get_current_user
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ router = APIRouter()
 @router.post("/", response_model=ResponseTimeResponse)
 async def create_response_time(
     response_time: ResponseTimeCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_user),
     db=Depends(get_database)
 ):
     """Store response time data (requires authentication)"""

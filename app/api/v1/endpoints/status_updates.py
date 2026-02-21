@@ -8,7 +8,7 @@ from ....models.schemas import (
     QueryParams,
     User
 )
-from ....core.deps import get_current_active_user
+from ....core.deps import get_current_user
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ router = APIRouter()
 @router.post("/", response_model=StatusUpdateResponse)
 async def create_status_update(
     status_update: StatusUpdateCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_user),
     db=Depends(get_database)
 ):
     """Store a new status update (requires authentication)"""
