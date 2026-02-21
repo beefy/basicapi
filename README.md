@@ -23,6 +23,11 @@ mongod --config /opt/homebrew/etc/mongod.conf
 
 http://127.0.0.1:8000/docs
 
+To check production logs
+```
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=basicapi" --limit=50 --format="table(timestamp,severity,textPayload)"
+```
+
 ## Features
 
 - **RESTful API** built with FastAPI
