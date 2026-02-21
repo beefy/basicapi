@@ -13,7 +13,7 @@ async def create_api_key(
     api_key_data: APIKeyCreate,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Create a new API key (requires admin authentication)"""
+    """Create a new API key tied to a specific device (requires admin authentication)"""
     # Generate new API key
     api_key = generate_api_key()
     hashed_key = hash_api_key(api_key)
@@ -22,6 +22,7 @@ async def create_api_key(
     api_keys_db[hashed_key] = {
         "name": api_key_data.name,
         "description": api_key_data.description,
+        "device_id": api_key_data.device_id,
         "created_at": datetime.utcnow(),
         "last_used": None,
         "created_by": current_user.username
@@ -31,6 +32,7 @@ async def create_api_key(
         name=api_key_data.name,
         key=api_key,
         description=api_key_data.description,
+        device_id=api_key_data.device_id,
         created_at=api_keys_db[hashed_key]["created_at"]
     )
 
@@ -40,9 +42,13 @@ async def list_api_keys(current_user: User = Depends(get_current_active_user)):
     """List all API keys (without showing the actual keys)"""
     keys = []
     for hashed_key, key_data in api_keys_db.items():
+        # Show only partial device ID for security
+        device_fingerprint = key_data["device_id"][:8] + "..." + key_data["device_id"][-8:] if len(key_data["device_id"]) > 16 else key_data["device_id"]
+        
         keys.append(APIKeyInfo(
             name=key_data["name"],
             description=key_data["description"],
+            device_fingerprint=device_fingerprint,
             created_at=key_data["created_at"],
             last_used=key_data["last_used"]
         ))

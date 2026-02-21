@@ -1,30 +1,55 @@
-# Raspberry Pi Setup Guide
+# Raspberry Pi Setup Guide - Device Fingerprinting Authentication
 
-This guide shows how to securely connect your Raspberry Pi devices to your FastAPI monitoring system using API keys.
+This guide shows how to securely connect your Raspberry Pi devices to your FastAPI monitoring system using **device fingerprinting** instead of IP whitelisting. This approach works perfectly with dynamic IP addresses.
 
 ## Security Features
 
-✅ **API Key Authentication** - Each Pi has its own API key  
-✅ **IP Allowlisting** - Only specified IPs can use API keys  
-✅ **Automatic Key Rotation** - Easy to generate/revoke keys  
-✅ **Usage Tracking** - See when each key was last used  
+✅ **Device Fingerprinting** - Each Pi has a unique hardware-based fingerprint  
+✅ **API Key + Device ID** - API keys are tied to specific hardware  
+✅ **Hardware-based Security** - Uses CPU serial, MAC address, board model  
+✅ **Dynamic IP Support** - Works from anywhere with any IP address  
+✅ **Usage Tracking** - See when each device was last used  
 
-## Step 1: Configure Allowed IPs
+## How It Works
 
-Edit the allowed IPs in your API server:
+1. **Device Fingerprint Generation** - The Pi creates a unique ID based on:
+   - CPU serial number (unique to each Pi)
+   - MAC address of network interface  
+   - Board model and revision
+   - Hostname and platform info
 
-```python
-# In app/core/deps.py, update ALLOWED_IPS list:
-ALLOWED_IPS = [
-    "127.0.0.1",           # Localhost
-    "192.168.1.100",       # Raspberry Pi 1
-    "192.168.1.101",       # Raspberry Pi 2  
-    "192.168.1.0/24",      # Entire home network
-    "your.static.ip.here", # Your external IP if needed
-]
-```
+2. **API Key Registration** - Admin creates API keys tied to specific device fingerprints
 
-## Step 2: Generate API Keys
+3. **Authentication** - Each API call includes both the API key and device fingerprint
+
+4. **Verification** - Server verifies the API key AND that it matches the device fingerprint
+
+## Step 1: No IP Configuration Needed! 🎉
+
+Unlike IP whitelisting, you don't need to configure any IP addresses. The system works with dynamic IPs automatically.
+
+## Step 2: Get Device Fingerprint from Your Pi
+
+1. **Copy the client script to your Pi**:
+   ```bash
+   scp raspberry_pi_client.py pi@YOUR_PI_IP:/home/pi/
+   ```
+
+2. **SSH into your Pi and get the device fingerprint**:
+   ```bash
+   ssh pi@YOUR_PI_IP
+   cd /home/pi
+   python3 -c "
+   import sys
+   sys.path.append('.')
+   from raspberry_pi_client import get_device_fingerprint
+   print('Device Fingerprint:', get_device_fingerprint())
+   "
+   ```
+
+   **Save this fingerprint** - you'll need it to create the API key!
+
+## Step 3: Generate API Keys
 
 1. **Start your API server**:
    ```bash
@@ -37,20 +62,21 @@ ALLOWED_IPS = [
         -u admin:secret
    ```
 
-3. **Create API keys for each Pi**:
+3. **Create API keys for each Pi with their device fingerprint**:
    ```bash
    curl -X POST "http://localhost:8000/api/v1/api-keys/create" \
         -H "Authorization: Bearer YOUR_TOKEN" \
         -H "Content-Type: application/json" \
         -d '{
           "name": "raspberry-pi-1",
-          "description": "Living room Pi sensor"
+          "description": "Living room Pi sensor",
+          "device_id": "YOUR_PI_DEVICE_FINGERPRINT_HERE"
         }'
    ```
 
    **Save the returned API key** - it's only shown once!
 
-## Step 3: Setup Raspberry Pi
+## Step 4: Setup Raspberry Pi
 
 1. **Copy the client script to your Pi**:
    ```bash
@@ -116,7 +142,10 @@ ALLOWED_IPS = [
 ```python
 import requests
 
-headers = {"X-API-Key": "your-api-key-here"}
+headers = {
+    "X-API-Key": "your-api-key-here",
+    "X-Device-ID": "your-device-fingerprint"
+}
 data = {
     "agent_name": "raspberry-pi-1",
     "update_text": "Sensor readings normal",
@@ -130,75 +159,28 @@ response = requests.post(
 )
 ```
 
-### Send System Info
-```python
-data = {
-    "agent_name": "raspberry-pi-1",
-    "cpu": 45.2,
-    "memory": 67.8,
-    "disk": 23.1
-}
+## Why Device Fingerprinting is Better Than IP Whitelisting
 
-response = requests.post(
-    "http://your-api-domain.com/api/v1/system-info/",
-    json=data,
-    headers=headers
-)
-```
+✅ **Dynamic IP Support** - Works with any internet connection  
+✅ **Hardware Security** - Tied to actual physical device  
+✅ **No Network Config** - No need to manage IP lists  
+✅ **Travel Friendly** - Pi can work from anywhere  
+✅ **Harder to Spoof** - Requires physical access to the device  
 
-### Send Heartbeat
-```python
-data = {
-    "agent_name": "raspberry-pi-1",
-    "last_heartbeat_ts": "2024-01-01T12:00:00"
-}
+## Security Notes
 
-response = requests.post(
-    "http://your-api-domain.com/api/v1/heartbeat/",
-    json=data,
-    headers=headers
-)
-```
+🔒 **Device fingerprints include**:
+- CPU serial number (unique to each Pi)
+- MAC address of primary network interface
+- Board model and revision information
+- Platform and hostname details
 
-## API Key Management
+🛡️ **If someone steals your Pi**:
+1. Delete the API key from your server
+2. The thief can't create a new key (requires admin access)
+3. Even with the API key, they need the exact hardware fingerprint
 
-### List all API keys
-```bash
-curl -X GET "http://localhost:8000/api/v1/api-keys/list" \
-     -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
-```
-
-### Delete an API key
-```bash
-curl -X DELETE "http://localhost:8000/api/v1/api-keys/raspberry-pi-1" \
-     -H "Authorization: Bearer YOUR_ADMIN_TOKEN"
-```
-
-## Security Best Practices
-
-1. **Use HTTPS in production** - Never send API keys over HTTP
-2. **Rotate API keys regularly** - Generate new keys periodically
-3. **Monitor usage** - Check the last_used timestamps
-4. **Use specific IP ranges** - Don't use 0.0.0.0/0
-5. **Firewall your API server** - Only allow necessary ports
-6. **Use environment variables** - Don't hardcode API keys in scripts
-
-## Troubleshooting
-
-### "Access denied from IP"
-- Check that your Pi's IP is in the ALLOWED_IPS list
-- Verify your Pi's actual IP with `curl ifconfig.me`
-
-### "Invalid API key"
-- Ensure the API key is correct and not expired
-- Check that the key exists with the list endpoint
-
-### Connection timeouts
-- Verify your API server is reachable
-- Check firewall settings
-- Ensure MongoDB is running
-
-### No data appearing
-- Check the Pi's monitoring logs: `tail -f /home/pi/monitor.log`
-- Verify the API server logs for errors
-- Test manual API calls from the Pi
+⚡ **If you reimage/replace your Pi**:
+1. The device fingerprint will change
+2. Create a new API key with the new fingerprint
+3. Delete the old key from the server

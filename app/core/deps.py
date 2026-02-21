@@ -3,10 +3,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHea
 from ..core.security import verify_token, verify_api_key, hash_api_key
 from ..models.schemas import User
 from typing import Optional, Union
-import ipaddress
+import hashlib
 
 security = HTTPBearer()
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+device_id_header = APIKeyHeader(name="X-Device-ID", auto_error=False)
 
 # For demo purposes, we'll use a simple in-memory user store
 # In production, this should be in a proper database
@@ -20,18 +21,9 @@ fake_users_db = {
     }
 }
 
-# API keys storage (in production, store in database)
-# Format: {"hashed_key": {"name": "pi-1", "description": "Raspberry Pi 1", "created_at": datetime, "last_used": datetime}}
+# API keys storage with device fingerprinting
+# Format: {"hashed_key": {"name": "pi-1", "device_id": "hashed_device_fingerprint", "created_at": datetime, "last_used": datetime}}
 api_keys_db = {}
-
-# Allowed IP addresses/networks for API key access
-ALLOWED_IPS = [
-    "127.0.0.1",  # Localhost
-    "::1",        # IPv6 localhost
-    # Add your Raspberry Pi IPs here, e.g.:
-    # "192.168.1.100",
-    # "192.168.1.0/24",  # Entire subnet
-]
 
 
 def get_user(username: str) -> Optional[User]:
@@ -41,26 +33,16 @@ def get_user(username: str) -> Optional[User]:
     return None
 
 
-def is_ip_allowed(ip: str) -> bool:
-    """Check if IP is in allowed list"""
-    try:
-        client_ip = ipaddress.ip_address(ip)
-        for allowed in ALLOWED_IPS:
-            if "/" in allowed:  # CIDR notation
-                if client_ip in ipaddress.ip_network(allowed, strict=False):
-                    return True
-            else:  # Single IP
-                if str(client_ip) == allowed:
-                    return True
-        return False
-    except ValueError:
-        return False
+def verify_device_fingerprint(device_id: str, stored_device_id: str) -> bool:
+    """Verify device fingerprint matches stored fingerprint"""
+    return device_id == stored_device_id
 
 
 async def get_current_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    api_key: Optional[str] = Depends(api_key_header)
+    api_key: Optional[str] = Depends(api_key_header),
+    device_id: Optional[str] = Depends(device_id_header)
 ) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -70,24 +52,32 @@ async def get_current_user(
     
     # Try API key authentication first
     if api_key:
-        # Check IP allowlist for API key access
-        client_ip = request.client.host
-        if not is_ip_allowed(client_ip):
+        if not device_id:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied from IP: {client_ip}"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Device ID required for API key authentication"
             )
         
         # Verify API key
         hashed_key = hash_api_key(api_key)
         if hashed_key in api_keys_db:
+            key_data = api_keys_db[hashed_key]
+            
+            # Verify device fingerprint
+            if not verify_device_fingerprint(device_id, key_data.get("device_id")):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Device fingerprint mismatch - this API key is registered to a different device"
+                )
+            
             # Update last used time
             from datetime import datetime
             api_keys_db[hashed_key]["last_used"] = datetime.utcnow()
+            
             # Return a service user for API key authentication
             return User(
-                username=f"api-key:{api_keys_db[hashed_key]['name']}",
-                full_name=f"API Key: {api_keys_db[hashed_key]['name']}",
+                username=f"api-key:{key_data['name']}",
+                full_name=f"API Key: {key_data['name']}",
                 disabled=False
             )
         else:
