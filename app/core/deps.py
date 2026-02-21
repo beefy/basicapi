@@ -29,9 +29,6 @@ async def authenticate_user(username: str, password: str) -> Optional[dict]:
     
     # Check if username is in allowed list
     allowed_usernames = settings.get_allowed_usernames()
-    print(f"DEBUG AUTH: Allowed usernames: {allowed_usernames}")
-    print(f"DEBUG AUTH: Checking username: '{username}'")
-    
     if username not in allowed_usernames:
         return None  # Fail silently for security
     
@@ -92,7 +89,7 @@ async def create_user(username: str, password: str, full_name: str = None) -> di
     if username not in allowed_usernames:
         raise HTTPException(
             status_code=403, 
-            detail=f"Username '{username}' not allowed. Allowed: {allowed_usernames}"
+            detail=f"Username '{username}' not allowed. Contact admin."
         )
     
     # Check if user already exists

@@ -54,7 +54,9 @@ jobs:
           MONGODB_URL=${{ secrets.MONGODB_URL }}
           DATABASE_NAME=${{ secrets.DATABASE_NAME }}
           SECRET_KEY=${{ secrets.SECRET_KEY }}
-          ALLOWED_USERNAMES="${{ secrets.ALLOWED_USERNAMES }}"
+          ALLOWED_USER_1=${{ secrets.ALLOWED_USER_1 }}
+          ALLOWED_USER_2=${{ secrets.ALLOWED_USER_2 }}
+          ALLOWED_USER_3=${{ secrets.ALLOWED_USER_3 }}
         flags: |
           --allow-unauthenticated
           --port=8000

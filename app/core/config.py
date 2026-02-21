@@ -9,7 +9,9 @@ class Settings(BaseSettings):
     
     # Security
     secret_key: str
-    allowed_usernames: str = "pi-livingroom,pi-bedroom,pi-kitchen"  # Comma-separated list
+    allowed_user_1: str = ""
+    allowed_user_2: str = ""
+    allowed_user_3: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     
@@ -25,8 +27,12 @@ class Settings(BaseSettings):
         env_file = ".env"
     
     def get_allowed_usernames(self) -> list:
-        """Get list of allowed usernames from comma-separated string"""
-        return [name.strip() for name in self.allowed_usernames.split(",") if name.strip()]
+        """Get list of allowed usernames from individual environment variables"""
+        usernames = []
+        for user in [self.allowed_user_1, self.allowed_user_2, self.allowed_user_3]:
+            if user.strip():
+                usernames.append(user.strip())
+        return usernames
 
 
 settings = Settings()
