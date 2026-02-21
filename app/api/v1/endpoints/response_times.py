@@ -23,6 +23,11 @@ async def create_response_time(
     response_time_dict = response_time.model_dump()
     result = await db.responses.insert_one(response_time_dict)
     created_response_time = await db.responses.find_one({"_id": result.inserted_id})
+    
+    # Convert ObjectId to string for response
+    if created_response_time and "_id" in created_response_time:
+        created_response_time["_id"] = str(created_response_time["_id"])
+    
     return ResponseTimeResponse(**created_response_time)
 
 

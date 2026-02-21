@@ -22,6 +22,11 @@ async def create_system_info(
     system_info_dict = system_info.model_dump()
     result = await db.system_info.insert_one(system_info_dict)
     created_system_info = await db.system_info.find_one({"_id": result.inserted_id})
+    
+    # Convert ObjectId to string for response
+    if created_system_info and "_id" in created_system_info:
+        created_system_info["_id"] = str(created_system_info["_id"])
+    
     return SystemInfoResponse(**created_system_info)
 
 
@@ -50,6 +55,9 @@ async def get_system_info(
     cursor = db.system_info.find(filter_dict).skip(skip).limit(limit).sort("ts", -1)
     system_infos = []
     async for doc in cursor:
+        # Convert ObjectId to string
+        if doc and "_id" in doc:
+            doc["_id"] = str(doc["_id"])
         system_infos.append(SystemInfoResponse(**doc))
     
     return system_infos

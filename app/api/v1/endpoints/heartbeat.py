@@ -33,6 +33,10 @@ async def create_heartbeat(
     
     # Find the updated/created document
     updated_heartbeat = await db.heartbeat.find_one({"agent_name": heartbeat.agent_name})
+    
+    # Convert ObjectId to string for response
+    if updated_heartbeat and "_id" in updated_heartbeat:
+        updated_heartbeat["_id"] = str(updated_heartbeat["_id"])
     return HeartbeatResponse(**updated_heartbeat)
 
 
@@ -50,6 +54,9 @@ async def get_heartbeats(
     cursor = db.heartbeat.find(filter_dict).sort("last_heartbeat_ts", -1)
     heartbeats = []
     async for doc in cursor:
+        # Convert ObjectId to string
+        if doc and "_id" in doc:
+            doc["_id"] = str(doc["_id"])
         heartbeats.append(HeartbeatResponse(**doc))
     
     return heartbeats
