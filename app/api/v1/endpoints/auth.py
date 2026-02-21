@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBasicCredentials, HTTPBasic
 from datetime import timedelta
-from ...core.security import verify_password, create_access_token
-from ...core.deps import fake_users_db
-from ...models.schemas import Token
+from ....core.security import verify_password, create_access_token
+from ....core.deps import fake_users_db
+from ....models.schemas import Token
 
 router = APIRouter()
 security = HTTPBasic()
