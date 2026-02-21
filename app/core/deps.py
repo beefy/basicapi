@@ -25,6 +25,13 @@ async def get_user(username: str) -> Optional[dict]:
 
 async def authenticate_user(username: str, password: str) -> Optional[dict]:
     """Authenticate user with username and password"""
+    from ..core.config import settings
+    
+    # Check if username is in allowed list
+    allowed_usernames = settings.get_allowed_usernames()
+    if username not in allowed_usernames:
+        return None  # Fail silently for security
+    
     user = await get_user(username)
     if not user:
         return None
@@ -73,7 +80,17 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 
 async def create_user(username: str, password: str, full_name: str = None) -> dict:
     """Create a new user"""
+    from ..core.config import settings
+    
     collection = await get_users_collection()
+    
+    # Check if username is in allowed list
+    allowed_usernames = settings.get_allowed_usernames()
+    if username not in allowed_usernames:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Username '{username}' not allowed. Contact admin."
+        )
     
     # Check if user already exists
     if await get_user(username):

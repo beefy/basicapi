@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     # Security
     secret_key: str
     bootstrap_secret: str  # Required - must be set via environment variable
+    allowed_usernames: str = "pi-livingroom,pi-bedroom,pi-kitchen"  # Comma-separated list
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     
@@ -23,6 +24,10 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+    
+    def get_allowed_usernames(self) -> list:
+        """Get list of allowed usernames from comma-separated string"""
+        return [name.strip() for name in self.allowed_usernames.split(",") if name.strip()]
 
 
 settings = Settings()
