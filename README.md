@@ -1,6 +1,6 @@
 # BasicAPI
 
-A comprehensive FastAPI application for monitoring and storing agent data with MongoDB backend, authentication, and automated deployment to Google Cloud Platform.
+A comprehensive FastAPI application for monitoring and storing agent data with MongoDB backend, device fingerprinting authentication, and automated deployment to Google Cloud Platform. Perfect for secure Raspberry Pi monitoring with dynamic IP addresses.
 
 ## Setup
 ```
@@ -25,7 +25,7 @@ mongod --config /opt/homebrew/etc/mongod.conf
 
 - **RESTful API** built with FastAPI
 - **MongoDB** for data storage with async support
-- **JWT Authentication** for protected endpoints
+- **API Key Authentication** with device fingerprinting for security
 - **Automated Testing** with pytest
 - **Database Migrations** with pymongo-migrate
 - **Docker Containerization**
@@ -34,20 +34,25 @@ mongod --config /opt/homebrew/etc/mongod.conf
 
 ## API Endpoints
 
-### Authentication
-- `POST /api/v1/auth/token` - Get access token (Basic Auth: admin/secret)
+### Bootstrap (Admin Setup)
+- `POST /api/v1/bootstrap/admin-key` - Create first admin key (localhost only, requires bootstrap secret)
+
+### Admin Management  
+- `POST /api/v1/admin/device-key` - Create device API keys (requires admin key)
+- `GET /api/v1/admin/keys` - List all API keys (requires admin key)
+- `DELETE /api/v1/admin/keys/{key_id}` - Delete API key (requires admin key)
 
 ### Status Updates
 - `GET /api/v1/status-updates/` - Query status updates
-- `POST /api/v1/status-updates/` - Store status update (requires auth)
+- `POST /api/v1/status-updates/` - Store status update (requires device key)
 
 ### System Information
 - `GET /api/v1/system-info/` - Query system information
-- `POST /api/v1/system-info/` - Store system info (requires auth)
+- `POST /api/v1/system-info/` - Store system info (requires device key)
 
 ### Response Times
 - `GET /api/v1/response-times/stats` - Get average response time statistics
-- `POST /api/v1/response-times/` - Store response time data (requires auth)
+- `POST /api/v1/response-times/` - Store response time data (requires device key)
 
 ### Heartbeats
 - `GET /api/v1/heartbeat/` - Query heartbeats
@@ -188,24 +193,51 @@ pytest tests/ -v
 pytest tests/ --cov=app --cov-report=html
 ```
 
-## Authentication
+## Authentication & Setup
 
-All POST endpoints (data storage) require authentication. Use the following steps:
+The API uses API key authentication with device fingerprinting. Here's how to set it up:
 
-1. **Get an access token**:
+### Security Configuration
+
+The bootstrap endpoint for creating the first admin key is protected in two ways:
+
+1. **Localhost Only**: The bootstrap endpoint only accepts requests from localhost (127.0.0.1) for security
+2. **Bootstrap Secret**: You must provide a `bootstrap_secret` in the request body
+
+Set your bootstrap secret in the environment:
+```bash
+export BOOTSTRAP_SECRET=your-super-secret-bootstrap-key-change-this-in-production
+```
+
+### Initial Setup
+
+1. **Create your first admin API key** (must be done from localhost):
    ```bash
-   curl -X POST "http://localhost:8000/api/v1/auth/token" \\
-        -H "Content-Type: application/x-www-form-urlencoded" \\
-        -u admin:secret
+   curl -X POST http://localhost:8000/api/v1/bootstrap/admin-key \
+     -H "Content-Type: application/json" \
+     -d '{"bootstrap_secret": "your-super-secret-bootstrap-key-change-this-in-production"}'
    ```
 
-2. **Use the token in requests**:
+2. **Create device keys for your Raspberry Pis** using the admin key:
    ```bash
-   curl -X POST "http://localhost:8000/api/v1/status-updates/" \\
-        -H "Authorization: Bearer YOUR_TOKEN_HERE" \\
-        -H "Content-Type: application/json" \\
-        -d '{"agent_name": "test", "update_text": "Hello"}'
+   curl -X POST http://localhost:8000/api/v1/admin/device-key \
+     -H "Authorization: Bearer YOUR_ADMIN_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"device_name": "pi-livingroom"}'
    ```
+
+### Using Device Keys
+
+All POST endpoints require a device API key. The system automatically validates both the key and device fingerprint:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/status-updates/" \
+     -H "Authorization: Bearer YOUR_DEVICE_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"agent_name": "test", "update_text": "Hello"}'
+```
+
+**Note**: API keys don't expire automatically - they're permanent until you delete them. This is perfect for automated monitoring systems like Raspberry Pis that shouldn't need key rotation.
 
 ## Database Migrations
 
