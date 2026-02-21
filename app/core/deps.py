@@ -84,6 +84,13 @@ async def create_user(username: str, password: str, full_name: str = None) -> di
     
     collection = await get_users_collection()
     
+    # Validate password length (bcrypt limitation)
+    if len(password.encode('utf-8')) > 72:
+        raise HTTPException(
+            status_code=400, 
+            detail="Password too long. Maximum 72 bytes allowed."
+        )
+    
     # Check if username is in allowed list
     allowed_usernames = settings.get_allowed_usernames()
     if username not in allowed_usernames:
