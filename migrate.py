@@ -1,1 +1,121 @@
-#!/usr/bin/env python3\n\"\"\"\nDatabase migration management script for BasicAPI\n\nUsage:\n    python migrate.py create <migration_name>  # Create a new migration\n    python migrate.py up                       # Run all pending migrations\n    python migrate.py down                     # Rollback last migration\n    python migrate.py status                   # Show migration status\n\"\"\"\n\nimport os\nimport sys\nfrom datetime import datetime\nfrom pymongo_migrate.migrate import Migrate\nfrom pymongo_migrate.config import Configuration\nfrom pymongo import MongoClient\n\n# Add the app directory to path for imports\nsys.path.append(os.path.join(os.path.dirname(__file__), 'app'))\n\nfrom app.core.config import settings\n\n\ndef create_migration(name: str):\n    \"\"\"Create a new migration file\"\"\"\n    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')\n    filename = f\"{timestamp}_{name}.py\"\n    filepath = os.path.join('migrations', filename)\n    \n    template = f'''\"\"\"Migration: {name}\n\nCreated: {datetime.now().isoformat()}\n\"\"\"\n\nfrom pymongo_migrate.actions import CreateIndex, DropIndex, CreateCollection, DropCollection\n\n\ndef upgrade(db):\n    \"\"\"Apply migration changes\"\"\"\n    # Add your upgrade logic here\n    pass\n\n\ndef downgrade(db):\n    \"\"\"Rollback migration changes\"\"\"\n    # Add your downgrade logic here\n    pass\n'''\n    \n    os.makedirs('migrations', exist_ok=True)\n    with open(filepath, 'w') as f:\n        f.write(template)\n    \n    print(f\"Created migration: {filepath}\")\n\n\ndef run_migrations():\n    \"\"\"Run all pending migrations\"\"\"\n    config = Configuration()\n    config.host = settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[0]\n    config.port = int(settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[1]) if ':' in settings.mongodb_url.replace('mongodb://', '').split('/')[0] else 27017\n    config.database = settings.database_name\n    config.migrations_dir = 'migrations'\n    \n    migrate = Migrate(config)\n    migrate.run()\n    print(\"Migrations completed\")\n\n\ndef rollback_migration():\n    \"\"\"Rollback the last migration\"\"\"\n    config = Configuration()\n    config.host = settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[0]\n    config.port = int(settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[1]) if ':' in settings.mongodb_url.replace('mongodb://', '').split('/')[0] else 27017\n    config.database = settings.database_name\n    config.migrations_dir = 'migrations'\n    \n    migrate = Migrate(config)\n    migrate.rollback()\n    print(\"Rollback completed\")\n\n\ndef migration_status():\n    \"\"\"Show migration status\"\"\"\n    config = Configuration()\n    config.host = settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[0]\n    config.port = int(settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[1]) if ':' in settings.mongodb_url.replace('mongodb://', '').split('/')[0] else 27017\n    config.database = settings.database_name\n    config.migrations_dir = 'migrations'\n    \n    migrate = Migrate(config)\n    status = migrate.status()\n    \n    print(\"Migration Status:\")\n    for migration in status:\n        print(f\"  {migration}\")\n\n\nif __name__ == \"__main__\":\n    if len(sys.argv) < 2:\n        print(__doc__)\n        sys.exit(1)\n    \n    command = sys.argv[1]\n    \n    if command == \"create\":\n        if len(sys.argv) < 3:\n            print(\"Usage: python migrate.py create <migration_name>\")\n            sys.exit(1)\n        create_migration(sys.argv[2])\n    elif command == \"up\":\n        run_migrations()\n    elif command == \"down\":\n        rollback_migration()\n    elif command == \"status\":\n        migration_status()\n    else:\n        print(f\"Unknown command: {command}\")\n        print(__doc__)\n        sys.exit(1)\n
+#!/usr/bin/env python3
+\"\"\"
+Database migration management script for BasicAPI
+
+Usage:
+    python migrate.py create <migration_name>  # Create a new migration
+    python migrate.py up                       # Run all pending migrations
+    python migrate.py down                     # Rollback last migration
+    python migrate.py status                   # Show migration status
+\"\"\"
+
+import os
+import sys
+from datetime import datetime
+from pymongo_migrate.migrate import Migrate
+from pymongo_migrate.config import Configuration
+from pymongo import MongoClient
+
+# Add the app directory to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
+
+from app.core.config import settings
+
+
+def create_migration(name: str):
+    \"\"\"Create a new migration file\"\"\"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f\"{timestamp}_{name}.py\"
+    filepath = os.path.join('migrations', filename)
+    
+    template = f'''\"\"\"Migration: {name}
+
+Created: {datetime.now().isoformat()}
+\"\"\"
+
+from pymongo_migrate.actions import CreateIndex, DropIndex, CreateCollection, DropCollection
+
+
+def upgrade(db):
+    \"\"\"Apply migration changes\"\"\"
+    # Add your upgrade logic here
+    pass
+
+
+def downgrade(db):
+    \"\"\"Rollback migration changes\"\"\"
+    # Add your downgrade logic here
+    pass
+'''
+    
+    os.makedirs('migrations', exist_ok=True)
+    with open(filepath, 'w') as f:
+        f.write(template)
+    
+    print(f\"Created migration: {filepath}\")
+
+
+def run_migrations():
+    \"\"\"Run all pending migrations\"\"\"
+    config = Configuration()
+    config.host = settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[0]
+    config.port = int(settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[1]) if ':' in settings.mongodb_url.replace('mongodb://', '').split('/')[0] else 27017
+    config.database = settings.database_name
+    config.migrations_dir = 'migrations'
+    
+    migrate = Migrate(config)
+    migrate.run()
+    print(\"Migrations completed\")
+
+
+def rollback_migration():
+    \"\"\"Rollback the last migration\"\"\"
+    config = Configuration()
+    config.host = settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[0]
+    config.port = int(settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[1]) if ':' in settings.mongodb_url.replace('mongodb://', '').split('/')[0] else 27017
+    config.database = settings.database_name
+    config.migrations_dir = 'migrations'
+    
+    migrate = Migrate(config)
+    migrate.rollback()
+    print(\"Rollback completed\")
+
+
+def migration_status():
+    \"\"\"Show migration status\"\"\"
+    config = Configuration()
+    config.host = settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[0]
+    config.port = int(settings.mongodb_url.replace('mongodb://', '').split('/')[0].split(':')[1]) if ':' in settings.mongodb_url.replace('mongodb://', '').split('/')[0] else 27017
+    config.database = settings.database_name
+    config.migrations_dir = 'migrations'
+    
+    migrate = Migrate(config)
+    status = migrate.status()
+    
+    print(\"Migration Status:\")
+    for migration in status:
+        print(f\"  {migration}\")
+
+
+if __name__ == \"__main__\":
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+    
+    command = sys.argv[1]
+    
+    if command == \"create\":
+        if len(sys.argv) < 3:
+            print(\"Usage: python migrate.py create <migration_name>\")
+            sys.exit(1)
+        create_migration(sys.argv[2])
+    elif command == \"up\":
+        run_migrations()
+    elif command == \"down\":
+        rollback_migration()
+    elif command == \"status\":
+        migration_status()
+    else:
+        print(f\"Unknown command: {command}\")
+        print(__doc__)
+        sys.exit(1)

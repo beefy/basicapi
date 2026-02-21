@@ -1,1 +1,142 @@
-import pytest\nfrom datetime import datetime\n\n\n@pytest.mark.asyncio\nasync def test_root(client):\n    \"\"\"Test root endpoint\"\"\"\n    response = await client.get(\"/\")\n    assert response.status_code == 200\n    data = response.json()\n    assert \"message\" in data\n    assert data[\"message\"] == \"Welcome to BasicAPI\"\n\n\n@pytest.mark.asyncio\nasync def test_health(client):\n    \"\"\"Test health endpoint\"\"\"\n    response = await client.get(\"/health\")\n    assert response.status_code == 200\n    data = response.json()\n    assert data[\"status\"] == \"healthy\"\n\n\n@pytest.mark.asyncio\nasync def test_login(client):\n    \"\"\"Test authentication\"\"\"\n    response = await client.post(\n        \"/api/v1/auth/token\",\n        auth=(\"admin\", \"secret\")\n    )\n    assert response.status_code == 200\n    data = response.json()\n    assert \"access_token\" in data\n    assert data[\"token_type\"] == \"bearer\"\n\n\n@pytest.mark.asyncio\nasync def test_login_invalid(client):\n    \"\"\"Test authentication with invalid credentials\"\"\"\n    response = await client.post(\n        \"/api/v1/auth/token\",\n        auth=(\"admin\", \"wrong_password\")\n    )\n    assert response.status_code == 400\n\n\n@pytest.mark.asyncio\nasync def test_status_updates_crud(client, auth_headers):\n    \"\"\"Test status updates CRUD operations\"\"\"\n    # Create status update\n    status_data = {\n        \"agent_name\": \"test_agent\",\n        \"update_text\": \"Test update\",\n        \"timestamp\": datetime.utcnow().isoformat()\n    }\n    \n    response = await client.post(\n        \"/api/v1/status-updates/\",\n        json=status_data,\n        headers=auth_headers\n    )\n    assert response.status_code == 200\n    created_status = response.json()\n    assert created_status[\"agent_name\"] == status_data[\"agent_name\"]\n    \n    # Get status updates\n    response = await client.get(\"/api/v1/status-updates/\")\n    assert response.status_code == 200\n    status_list = response.json()\n    assert len(status_list) > 0\n    assert any(s[\"agent_name\"] == \"test_agent\" for s in status_list)\n\n\n@pytest.mark.asyncio\nasync def test_heartbeat_upsert(client, auth_headers):\n    \"\"\"Test heartbeat upsert behavior\"\"\"\n    heartbeat_data = {\n        \"agent_name\": \"test_agent\",\n        \"last_heartbeat_ts\": datetime.utcnow().isoformat()\n    }\n    \n    # Create first heartbeat\n    response = await client.post(\n        \"/api/v1/heartbeat/\",\n        json=heartbeat_data,\n        headers=auth_headers\n    )\n    assert response.status_code == 200\n    first_heartbeat = response.json()\n    \n    # Create second heartbeat for same agent (should update, not create new)\n    heartbeat_data[\"last_heartbeat_ts\"] = datetime.utcnow().isoformat()\n    response = await client.post(\n        \"/api/v1/heartbeat/\",\n        json=heartbeat_data,\n        headers=auth_headers\n    )\n    assert response.status_code == 200\n    second_heartbeat = response.json()\n    \n    # Get all heartbeats - should only have one for this agent\n    response = await client.get(\"/api/v1/heartbeat/?agent_name=test_agent\")\n    assert response.status_code == 200\n    heartbeats = response.json()\n    assert len(heartbeats) == 1  # Only one heartbeat per agent\n\n\n@pytest.mark.asyncio\nasync def test_unauthorized_access(client):\n    \"\"\"Test that endpoints requiring authentication return 401 without auth\"\"\"\n    status_data = {\n        \"agent_name\": \"test_agent\",\n        \"update_text\": \"Test update\"\n    }\n    \n    response = await client.post(\"/api/v1/status-updates/\", json=status_data)\n    assert response.status_code == 401\n\n\n@pytest.mark.asyncio\nasync def test_response_time_stats(client, auth_headers):\n    \"\"\"Test response time statistics\"\"\"\n    # Create some response time data\n    response_data = {\n        \"agent_name\": \"test_agent\",\n        \"received_ts\": \"2024-01-01T10:00:00\",\n        \"sent_ts\": \"2024-01-01T10:00:01\"\n    }\n    \n    response = await client.post(\n        \"/api/v1/response-times/\",\n        json=response_data,\n        headers=auth_headers\n    )\n    assert response.status_code == 200\n    \n    # Get statistics\n    response = await client.get(\"/api/v1/response-times/stats\")\n    assert response.status_code == 200\n    stats = response.json()\n    assert len(stats) > 0\n    assert any(s[\"agent_name\"] == \"test_agent\" for s in stats)\n
+import pytest
+from datetime import datetime
+
+
+@pytest.mark.asyncio
+async def test_root(client):
+    \"\"\"Test root endpoint\"\"\"
+    response = await client.get(\"/\")
+    assert response.status_code == 200
+    data = response.json()
+    assert \"message\" in data
+    assert data[\"message\"] == \"Welcome to BasicAPI\"
+
+
+@pytest.mark.asyncio
+async def test_health(client):
+    \"\"\"Test health endpoint\"\"\"
+    response = await client.get(\"/health\")
+    assert response.status_code == 200
+    data = response.json()
+    assert data[\"status\"] == \"healthy\"
+
+
+@pytest.mark.asyncio
+async def test_login(client):
+    \"\"\"Test authentication\"\"\"
+    response = await client.post(
+        \"/api/v1/auth/token\",
+        auth=(\"admin\", \"secret\")
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert \"access_token\" in data
+    assert data[\"token_type\"] == \"bearer\"
+
+
+@pytest.mark.asyncio
+async def test_login_invalid(client):
+    \"\"\"Test authentication with invalid credentials\"\"\"
+    response = await client.post(
+        \"/api/v1/auth/token\",
+        auth=(\"admin\", \"wrong_password\")
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_status_updates_crud(client, auth_headers):
+    \"\"\"Test status updates CRUD operations\"\"\"
+    # Create status update
+    status_data = {
+        \"agent_name\": \"test_agent\",
+        \"update_text\": \"Test update\",
+        \"timestamp\": datetime.utcnow().isoformat()
+    }
+    
+    response = await client.post(
+        \"/api/v1/status-updates/\",
+        json=status_data,
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    created_status = response.json()
+    assert created_status[\"agent_name\"] == status_data[\"agent_name\"]
+    
+    # Get status updates
+    response = await client.get(\"/api/v1/status-updates/\")
+    assert response.status_code == 200
+    status_list = response.json()
+    assert len(status_list) > 0
+    assert any(s[\"agent_name\"] == \"test_agent\" for s in status_list)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_upsert(client, auth_headers):
+    \"\"\"Test heartbeat upsert behavior\"\"\"
+    heartbeat_data = {
+        \"agent_name\": \"test_agent\",
+        \"last_heartbeat_ts\": datetime.utcnow().isoformat()
+    }
+    
+    # Create first heartbeat
+    response = await client.post(
+        \"/api/v1/heartbeat/\",
+        json=heartbeat_data,
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    first_heartbeat = response.json()
+    
+    # Create second heartbeat for same agent (should update, not create new)
+    heartbeat_data[\"last_heartbeat_ts\"] = datetime.utcnow().isoformat()
+    response = await client.post(
+        \"/api/v1/heartbeat/\",
+        json=heartbeat_data,
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    second_heartbeat = response.json()
+    
+    # Get all heartbeats - should only have one for this agent
+    response = await client.get(\"/api/v1/heartbeat/?agent_name=test_agent\")
+    assert response.status_code == 200
+    heartbeats = response.json()
+    assert len(heartbeats) == 1  # Only one heartbeat per agent
+
+
+@pytest.mark.asyncio
+async def test_unauthorized_access(client):
+    \"\"\"Test that endpoints requiring authentication return 401 without auth\"\"\"
+    status_data = {
+        \"agent_name\": \"test_agent\",
+        \"update_text\": \"Test update\"
+    }
+    
+    response = await client.post(\"/api/v1/status-updates/\", json=status_data)
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_response_time_stats(client, auth_headers):
+    \"\"\"Test response time statistics\"\"\"
+    # Create some response time data
+    response_data = {
+        \"agent_name\": \"test_agent\",
+        \"received_ts\": \"2024-01-01T10:00:00\",
+        \"sent_ts\": \"2024-01-01T10:00:01\"
+    }
+    
+    response = await client.post(
+        \"/api/v1/response-times/\",
+        json=response_data,
+        headers=auth_headers
+    )
+    assert response.status_code == 200
+    
+    # Get statistics
+    response = await client.get(\"/api/v1/response-times/stats\")
+    assert response.status_code == 200
+    stats = response.json()
+    assert len(stats) > 0
+    assert any(s[\"agent_name\"] == \"test_agent\" for s in stats)

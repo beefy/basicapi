@@ -1,1 +1,55 @@
-from fastapi import APIRouter, Depends, HTTPException, Query\nfrom typing import List, Optional\nfrom datetime import datetime\nfrom ....db.mongodb import get_database\nfrom ....models.schemas import (\n    HeartbeatCreate,\n    HeartbeatResponse,\n    User\n)\nfrom ....core.deps import get_current_active_user\n\nrouter = APIRouter()\n\n\n@router.post(\"/\", response_model=HeartbeatResponse)\nasync def create_heartbeat(\n    heartbeat: HeartbeatCreate,\n    current_user: User = Depends(get_current_active_user),\n    db=Depends(get_database)\n):\n    \"\"\"Store/update heartbeat (requires authentication)\n    \n    Only stores a single heartbeat per agent_name (upsert behavior)\n    \"\"\"\n    heartbeat_dict = heartbeat.model_dump()\n    \n    # Use upsert to ensure only one heartbeat per agent\n    result = await db.heartbeat.replace_one(\n        {\"agent_name\": heartbeat.agent_name},\n        heartbeat_dict,\n        upsert=True\n    )\n    \n    # Find the updated/created document\n    updated_heartbeat = await db.heartbeat.find_one({\"agent_name\": heartbeat.agent_name})\n    return HeartbeatResponse(**updated_heartbeat)\n\n\n@router.get(\"/\", response_model=List[HeartbeatResponse])\nasync def get_heartbeats(\n    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),\n    db=Depends(get_database)\n):\n    \"\"\"Query heartbeats\"\"\"\n    filter_dict = {}\n    \n    if agent_name:\n        filter_dict[\"agent_name\"] = agent_name\n    \n    cursor = db.heartbeat.find(filter_dict).sort(\"last_heartbeat_ts\", -1)\n    heartbeats = []\n    async for doc in cursor:\n        heartbeats.append(HeartbeatResponse(**doc))\n    \n    return heartbeats\n
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
+from datetime import datetime
+from ....db.mongodb import get_database
+from ....models.schemas import (
+    HeartbeatCreate,
+    HeartbeatResponse,
+    User
+)
+from ....core.deps import get_current_active_user
+
+router = APIRouter()
+
+
+@router.post(\"/\", response_model=HeartbeatResponse)
+async def create_heartbeat(
+    heartbeat: HeartbeatCreate,
+    current_user: User = Depends(get_current_active_user),
+    db=Depends(get_database)
+):
+    \"\"\"Store/update heartbeat (requires authentication)
+    
+    Only stores a single heartbeat per agent_name (upsert behavior)
+    \"\"\"
+    heartbeat_dict = heartbeat.model_dump()
+    
+    # Use upsert to ensure only one heartbeat per agent
+    result = await db.heartbeat.replace_one(
+        {\"agent_name\": heartbeat.agent_name},
+        heartbeat_dict,
+        upsert=True
+    )
+    
+    # Find the updated/created document
+    updated_heartbeat = await db.heartbeat.find_one({\"agent_name\": heartbeat.agent_name})
+    return HeartbeatResponse(**updated_heartbeat)
+
+
+@router.get(\"/\", response_model=List[HeartbeatResponse])
+async def get_heartbeats(
+    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),
+    db=Depends(get_database)
+):
+    \"\"\"Query heartbeats\"\"\"
+    filter_dict = {}
+    
+    if agent_name:
+        filter_dict[\"agent_name\"] = agent_name
+    
+    cursor = db.heartbeat.find(filter_dict).sort(\"last_heartbeat_ts\", -1)
+    heartbeats = []
+    async for doc in cursor:
+        heartbeats.append(HeartbeatResponse(**doc))
+    
+    return heartbeats

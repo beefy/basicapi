@@ -1,1 +1,32 @@
-FROM python:3.11-slim\n\n# Set environment variables\nENV PYTHONDONTWRITEBYTECODE=1\nENV PYTHONUNBUFFERED=1\n\n# Set work directory\nWORKDIR /app\n\n# Install system dependencies\nRUN apt-get update \\\n    && apt-get install -y --no-install-recommends \\\n        build-essential \\\n    && rm -rf /var/lib/apt/lists/*\n\n# Install Python dependencies\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\n\n# Copy project\nCOPY . .\n\n# Create a non-root user\nRUN adduser --disabled-password --gecos '' --shell /bin/bash appuser \\\n    && chown -R appuser:appuser /app\nUSER appuser\n\n# Expose port\nEXPOSE 8000\n\n# Run the application\nCMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]\n
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Set work directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update \\
+    && apt-get install -y --no-install-recommends \\
+        build-essential \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy project
+COPY . .
+
+# Create a non-root user
+RUN adduser --disabled-password --gecos '' --shell /bin/bash appuser \\
+    && chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]

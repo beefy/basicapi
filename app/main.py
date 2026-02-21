@@ -1,1 +1,45 @@
-from fastapi import FastAPI\nfrom fastapi.middleware.cors import CORSMiddleware\nfrom .core.config import settings\nfrom .api.v1.api import api_router\nfrom .db.mongodb import connect_to_mongo, close_mongo_connection\n\n\ndef create_application() -> FastAPI:\n    application = FastAPI(\n        title=settings.project_name,\n        version=\"1.0.0\",\n        description=\"BasicAPI - A FastAPI application for monitoring agent data\",\n        openapi_url=f\"{settings.api_v1_str}/openapi.json\"\n    )\n    \n    # Set up CORS middleware\n    application.add_middleware(\n        CORSMiddleware,\n        allow_origins=[\"*\"],  # Configure appropriately for production\n        allow_credentials=True,\n        allow_methods=[\"*\"],\n        allow_headers=[\"*\"],\n    )\n    \n    # Include API router\n    application.include_router(api_router, prefix=settings.api_v1_str)\n    \n    # Add startup and shutdown events\n    application.add_event_handler(\"startup\", connect_to_mongo)\n    application.add_event_handler(\"shutdown\", close_mongo_connection)\n    \n    return application\n\n\napp = create_application()\n\n\n@app.get(\"/\")\nasync def root():\n    return {\"message\": \"Welcome to BasicAPI\", \"docs\": \"/docs\"}\n\n\n@app.get(\"/health\")\nasync def health_check():\n    return {\"status\": \"healthy\"}\n
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .core.config import settings
+from .api.v1.api import api_router
+from .db.mongodb import connect_to_mongo, close_mongo_connection
+
+
+def create_application() -> FastAPI:
+    application = FastAPI(
+        title=settings.project_name,
+        version=\"1.0.0\",
+        description=\"BasicAPI - A FastAPI application for monitoring agent data\",
+        openapi_url=f\"{settings.api_v1_str}/openapi.json\"
+    )
+    
+    # Set up CORS middleware
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=[\"*\"],  # Configure appropriately for production
+        allow_credentials=True,
+        allow_methods=[\"*\"],
+        allow_headers=[\"*\"],
+    )
+    
+    # Include API router
+    application.include_router(api_router, prefix=settings.api_v1_str)
+    
+    # Add startup and shutdown events
+    application.add_event_handler(\"startup\", connect_to_mongo)
+    application.add_event_handler(\"shutdown\", close_mongo_connection)
+    
+    return application
+
+
+app = create_application()
+
+
+@app.get(\"/\")
+async def root():
+    return {\"message\": \"Welcome to BasicAPI\", \"docs\": \"/docs\"}
+
+
+@app.get(\"/health\")
+async def health_check():
+    return {\"status\": \"healthy\"}

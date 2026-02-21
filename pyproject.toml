@@ -1,1 +1,58 @@
-[tool.pytest.ini_options]\npythonpath = [\".\", \"app\"]\ntestpaths = [\"tests\"]\nasyncio_mode = \"auto\"\naddopts = \"-v --tb=short\"\n\n[tool.black]\nline-length = 88\ntarget-version = ['py311']\ninclude = '\\.pyi?$'\nextend-exclude = '''\n(\n  migrations/\n)\n'''\n\n[tool.isort]\nprofile = \"black\"\nline_length = 88\nmulti_line_output = 3\ninclude_trailing_comma = true\nforce_grid_wrap = 0\nuse_parentheses = true\nensure_newline_before_comments = true\n\n[project]\nname = \"basicapi\"\nversion = \"1.0.0\"\ndescription = \"A FastAPI application for monitoring agent data\"\nauthors = [{name = \"Your Name\", email = \"your.email@example.com\"}]\nrequires-python = \">=3.11\"\ndependencies = [\n    \"fastapi>=0.104.1\",\n    \"uvicorn[standard]>=0.24.0\",\n    \"motor>=3.3.2\",\n    \"pymongo>=4.6.0\",\n    \"pydantic>=2.5.0\",\n    \"pydantic-settings>=2.1.0\",\n    \"python-jose[cryptography]>=3.3.0\",\n    \"passlib[bcrypt]>=1.7.4\",\n    \"python-multipart>=0.0.6\",\n    \"pymongo-migrate>=0.12.1\",\n    \"python-dotenv>=1.0.0\"\n]\n\n[project.optional-dependencies]\ndev = [\n    \"pytest>=7.4.3\",\n    \"pytest-asyncio>=0.21.1\",\n    \"httpx>=0.25.2\",\n    \"black>=23.0.0\",\n    \"isort>=5.12.0\",\n    \"flake8>=6.0.0\"\n]\n\n[build-system]\nrequires = [\"setuptools>=61.0\"]\nbuild-backend = \"setuptools.build_meta\"\n
+[tool.pytest.ini_options]
+pythonpath = [\".\", \"app\"]
+testpaths = [\"tests\"]
+asyncio_mode = \"auto\"
+addopts = \"-v --tb=short\"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\\.pyi?$'
+extend-exclude = '''
+(
+  migrations/
+)
+'''
+
+[tool.isort]
+profile = \"black\"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+
+[project]
+name = \"basicapi\"
+version = \"1.0.0\"
+description = \"A FastAPI application for monitoring agent data\"
+authors = [{name = \"Your Name\", email = \"your.email@example.com\"}]
+requires-python = \">=3.11\"
+dependencies = [
+    \"fastapi>=0.104.1\",
+    \"uvicorn[standard]>=0.24.0\",
+    \"motor>=3.3.2\",
+    \"pymongo>=4.6.0\",
+    \"pydantic>=2.5.0\",
+    \"pydantic-settings>=2.1.0\",
+    \"python-jose[cryptography]>=3.3.0\",
+    \"passlib[bcrypt]>=1.7.4\",
+    \"python-multipart>=0.0.6\",
+    \"pymongo-migrate>=0.12.1\",
+    \"python-dotenv>=1.0.0\"
+]
+
+[project.optional-dependencies]
+dev = [
+    \"pytest>=7.4.3\",
+    \"pytest-asyncio>=0.21.1\",
+    \"httpx>=0.25.2\",
+    \"black>=23.0.0\",
+    \"isort>=5.12.0\",
+    \"flake8>=6.0.0\"
+]
+
+[build-system]
+requires = [\"setuptools>=61.0\"]
+build-backend = \"setuptools.build_meta\"

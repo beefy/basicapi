@@ -1,1 +1,55 @@
-from fastapi import APIRouter, Depends, HTTPException, Query\nfrom typing import List, Optional\nfrom datetime import datetime\nfrom ....db.mongodb import get_database\nfrom ....models.schemas import (\n    SystemInfoCreate,\n    SystemInfoResponse,\n    User\n)\nfrom ....core.deps import get_current_active_user\n\nrouter = APIRouter()\n\n\n@router.post(\"/\", response_model=SystemInfoResponse)\nasync def create_system_info(\n    system_info: SystemInfoCreate,\n    current_user: User = Depends(get_current_active_user),\n    db=Depends(get_database)\n):\n    \"\"\"Store system information (requires authentication)\"\"\"\n    system_info_dict = system_info.model_dump()\n    result = await db.system_info.insert_one(system_info_dict)\n    created_system_info = await db.system_info.find_one({\"_id\": result.inserted_id})\n    return SystemInfoResponse(**created_system_info)\n\n\n@router.get(\"/\", response_model=List[SystemInfoResponse])\nasync def get_system_info(\n    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),\n    start_date: Optional[datetime] = Query(None, description=\"Start date for filtering\"),\n    end_date: Optional[datetime] = Query(None, description=\"End date for filtering\"),\n    limit: int = Query(100, le=1000, description=\"Number of records to return\"),\n    skip: int = Query(0, ge=0, description=\"Number of records to skip\"),\n    db=Depends(get_database)\n):\n    \"\"\"Query system information\"\"\"\n    filter_dict = {}\n    \n    if agent_name:\n        filter_dict[\"agent_name\"] = agent_name\n    \n    if start_date or end_date:\n        filter_dict[\"ts\"] = {}\n        if start_date:\n            filter_dict[\"ts\"][\"$gte\"] = start_date\n        if end_date:\n            filter_dict[\"ts\"][\"$lte\"] = end_date\n    \n    cursor = db.system_info.find(filter_dict).skip(skip).limit(limit).sort(\"ts\", -1)\n    system_infos = []\n    async for doc in cursor:\n        system_infos.append(SystemInfoResponse(**doc))\n    \n    return system_infos\n
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
+from datetime import datetime
+from ....db.mongodb import get_database
+from ....models.schemas import (
+    SystemInfoCreate,
+    SystemInfoResponse,
+    User
+)
+from ....core.deps import get_current_active_user
+
+router = APIRouter()
+
+
+@router.post(\"/\", response_model=SystemInfoResponse)
+async def create_system_info(
+    system_info: SystemInfoCreate,
+    current_user: User = Depends(get_current_active_user),
+    db=Depends(get_database)
+):
+    \"\"\"Store system information (requires authentication)\"\"\"
+    system_info_dict = system_info.model_dump()
+    result = await db.system_info.insert_one(system_info_dict)
+    created_system_info = await db.system_info.find_one({\"_id\": result.inserted_id})
+    return SystemInfoResponse(**created_system_info)
+
+
+@router.get(\"/\", response_model=List[SystemInfoResponse])
+async def get_system_info(
+    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),
+    start_date: Optional[datetime] = Query(None, description=\"Start date for filtering\"),
+    end_date: Optional[datetime] = Query(None, description=\"End date for filtering\"),
+    limit: int = Query(100, le=1000, description=\"Number of records to return\"),
+    skip: int = Query(0, ge=0, description=\"Number of records to skip\"),
+    db=Depends(get_database)
+):
+    \"\"\"Query system information\"\"\"
+    filter_dict = {}
+    
+    if agent_name:
+        filter_dict[\"agent_name\"] = agent_name
+    
+    if start_date or end_date:
+        filter_dict[\"ts\"] = {}
+        if start_date:
+            filter_dict[\"ts\"][\"$gte\"] = start_date
+        if end_date:
+            filter_dict[\"ts\"][\"$lte\"] = end_date
+    
+    cursor = db.system_info.find(filter_dict).skip(skip).limit(limit).sort(\"ts\", -1)
+    system_infos = []
+    async for doc in cursor:
+        system_infos.append(SystemInfoResponse(**doc))
+    
+    return system_infos

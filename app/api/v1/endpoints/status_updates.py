@@ -1,1 +1,56 @@
-from fastapi import APIRouter, Depends, HTTPException, Query\nfrom typing import List, Optional\nfrom datetime import datetime\nfrom ....db.mongodb import get_database\nfrom ....models.schemas import (\n    StatusUpdateCreate,\n    StatusUpdateResponse,\n    QueryParams,\n    User\n)\nfrom ....core.deps import get_current_active_user\n\nrouter = APIRouter()\n\n\n@router.post(\"/\", response_model=StatusUpdateResponse)\nasync def create_status_update(\n    status_update: StatusUpdateCreate,\n    current_user: User = Depends(get_current_active_user),\n    db=Depends(get_database)\n):\n    \"\"\"Store a new status update (requires authentication)\"\"\"\n    status_update_dict = status_update.model_dump()\n    result = await db.status_updates.insert_one(status_update_dict)\n    created_status_update = await db.status_updates.find_one({\"_id\": result.inserted_id})\n    return StatusUpdateResponse(**created_status_update)\n\n\n@router.get(\"/\", response_model=List[StatusUpdateResponse])\nasync def get_status_updates(\n    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),\n    start_date: Optional[datetime] = Query(None, description=\"Start date for filtering\"),\n    end_date: Optional[datetime] = Query(None, description=\"End date for filtering\"),\n    limit: int = Query(100, le=1000, description=\"Number of records to return\"),\n    skip: int = Query(0, ge=0, description=\"Number of records to skip\"),\n    db=Depends(get_database)\n):\n    \"\"\"Query status updates\"\"\"\n    filter_dict = {}\n    \n    if agent_name:\n        filter_dict[\"agent_name\"] = agent_name\n    \n    if start_date or end_date:\n        filter_dict[\"timestamp\"] = {}\n        if start_date:\n            filter_dict[\"timestamp\"][\"$gte\"] = start_date\n        if end_date:\n            filter_dict[\"timestamp\"][\"$lte\"] = end_date\n    \n    cursor = db.status_updates.find(filter_dict).skip(skip).limit(limit).sort(\"timestamp\", -1)\n    status_updates = []\n    async for doc in cursor:\n        status_updates.append(StatusUpdateResponse(**doc))\n    \n    return status_updates\n
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
+from datetime import datetime
+from ....db.mongodb import get_database
+from ....models.schemas import (
+    StatusUpdateCreate,
+    StatusUpdateResponse,
+    QueryParams,
+    User
+)
+from ....core.deps import get_current_active_user
+
+router = APIRouter()
+
+
+@router.post(\"/\", response_model=StatusUpdateResponse)
+async def create_status_update(
+    status_update: StatusUpdateCreate,
+    current_user: User = Depends(get_current_active_user),
+    db=Depends(get_database)
+):
+    \"\"\"Store a new status update (requires authentication)\"\"\"
+    status_update_dict = status_update.model_dump()
+    result = await db.status_updates.insert_one(status_update_dict)
+    created_status_update = await db.status_updates.find_one({\"_id\": result.inserted_id})
+    return StatusUpdateResponse(**created_status_update)
+
+
+@router.get(\"/\", response_model=List[StatusUpdateResponse])
+async def get_status_updates(
+    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),
+    start_date: Optional[datetime] = Query(None, description=\"Start date for filtering\"),
+    end_date: Optional[datetime] = Query(None, description=\"End date for filtering\"),
+    limit: int = Query(100, le=1000, description=\"Number of records to return\"),
+    skip: int = Query(0, ge=0, description=\"Number of records to skip\"),
+    db=Depends(get_database)
+):
+    \"\"\"Query status updates\"\"\"
+    filter_dict = {}
+    
+    if agent_name:
+        filter_dict[\"agent_name\"] = agent_name
+    
+    if start_date or end_date:
+        filter_dict[\"timestamp\"] = {}
+        if start_date:
+            filter_dict[\"timestamp\"][\"$gte\"] = start_date
+        if end_date:
+            filter_dict[\"timestamp\"][\"$lte\"] = end_date
+    
+    cursor = db.status_updates.find(filter_dict).skip(skip).limit(limit).sort(\"timestamp\", -1)
+    status_updates = []
+    async for doc in cursor:
+        status_updates.append(StatusUpdateResponse(**doc))
+    
+    return status_updates

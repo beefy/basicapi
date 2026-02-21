@@ -1,1 +1,84 @@
-from fastapi import APIRouter, Depends, HTTPException, Query\nfrom typing import List, Optional\nfrom datetime import datetime\nfrom ....db.mongodb import get_database\nfrom ....models.schemas import (\n    ResponseTimeCreate,\n    ResponseTimeResponse,\n    ResponseTimeStats,\n    User\n)\nfrom ....core.deps import get_current_active_user\n\nrouter = APIRouter()\n\n\n@router.post(\"/\", response_model=ResponseTimeResponse)\nasync def create_response_time(\n    response_time: ResponseTimeCreate,\n    current_user: User = Depends(get_current_active_user),\n    db=Depends(get_database)\n):\n    \"\"\"Store response time data (requires authentication)\"\"\"\n    response_time_dict = response_time.model_dump()\n    result = await db.responses.insert_one(response_time_dict)\n    created_response_time = await db.responses.find_one({\"_id\": result.inserted_id})\n    return ResponseTimeResponse(**created_response_time)\n\n\n@router.get(\"/stats\", response_model=List[ResponseTimeStats])\nasync def get_response_time_stats(\n    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),\n    start_date: Optional[datetime] = Query(None, description=\"Start date for filtering\"),\n    end_date: Optional[datetime] = Query(None, description=\"End date for filtering\"),\n    db=Depends(get_database)\n):\n    \"\"\"Query response time statistics (returns average response times, not individual records)\"\"\"\n    match_stage = {}\n    \n    if agent_name:\n        match_stage[\"agent_name\"] = agent_name\n    \n    if start_date or end_date:\n        match_stage[\"received_ts\"] = {}\n        if start_date:\n            match_stage[\"received_ts\"][\"$gte\"] = start_date\n        if end_date:\n            match_stage[\"received_ts\"][\"$lte\"] = end_date\n    \n    pipeline = [\n        {\"$match\": match_stage},\n        {\n            \"$addFields\": {\n                \"response_time_ms\": {\n                    \"$subtract\": [\n                        {\"$toLong\": \"$sent_ts\"},\n                        {\"$toLong\": \"$received_ts\"}\n                    ]\n                }\n            }\n        },\n        {\n            \"$group\": {\n                \"_id\": \"$agent_name\",\n                \"average_response_time_ms\": {\"$avg\": \"$response_time_ms\"},\n                \"count\": {\"$sum\": 1}\n            }\n        },\n        {\n            \"$project\": {\n                \"agent_name\": \"$_id\",\n                \"average_response_time_ms\": 1,\n                \"count\": 1,\n                \"_id\": 0\n            }\n        },\n        {\"$sort\": {\"agent_name\": 1}}\n    ]\n    \n    cursor = db.responses.aggregate(pipeline)\n    stats = []\n    async for doc in cursor:\n        stats.append(ResponseTimeStats(**doc))\n    \n    return stats\n
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
+from datetime import datetime
+from ....db.mongodb import get_database
+from ....models.schemas import (
+    ResponseTimeCreate,
+    ResponseTimeResponse,
+    ResponseTimeStats,
+    User
+)
+from ....core.deps import get_current_active_user
+
+router = APIRouter()
+
+
+@router.post(\"/\", response_model=ResponseTimeResponse)
+async def create_response_time(
+    response_time: ResponseTimeCreate,
+    current_user: User = Depends(get_current_active_user),
+    db=Depends(get_database)
+):
+    \"\"\"Store response time data (requires authentication)\"\"\"
+    response_time_dict = response_time.model_dump()
+    result = await db.responses.insert_one(response_time_dict)
+    created_response_time = await db.responses.find_one({\"_id\": result.inserted_id})
+    return ResponseTimeResponse(**created_response_time)
+
+
+@router.get(\"/stats\", response_model=List[ResponseTimeStats])
+async def get_response_time_stats(
+    agent_name: Optional[str] = Query(None, description=\"Filter by agent name\"),
+    start_date: Optional[datetime] = Query(None, description=\"Start date for filtering\"),
+    end_date: Optional[datetime] = Query(None, description=\"End date for filtering\"),
+    db=Depends(get_database)
+):
+    \"\"\"Query response time statistics (returns average response times, not individual records)\"\"\"
+    match_stage = {}
+    
+    if agent_name:
+        match_stage[\"agent_name\"] = agent_name
+    
+    if start_date or end_date:
+        match_stage[\"received_ts\"] = {}
+        if start_date:
+            match_stage[\"received_ts\"][\"$gte\"] = start_date
+        if end_date:
+            match_stage[\"received_ts\"][\"$lte\"] = end_date
+    
+    pipeline = [
+        {\"$match\": match_stage},
+        {
+            \"$addFields\": {
+                \"response_time_ms\": {
+                    \"$subtract\": [
+                        {\"$toLong\": \"$sent_ts\"},
+                        {\"$toLong\": \"$received_ts\"}
+                    ]
+                }
+            }
+        },
+        {
+            \"$group\": {
+                \"_id\": \"$agent_name\",
+                \"average_response_time_ms\": {\"$avg\": \"$response_time_ms\"},
+                \"count\": {\"$sum\": 1}
+            }
+        },
+        {
+            \"$project\": {
+                \"agent_name\": \"$_id\",
+                \"average_response_time_ms\": 1,
+                \"count\": 1,
+                \"_id\": 0
+            }
+        },
+        {\"$sort\": {\"agent_name\": 1}}
+    ]
+    
+    cursor = db.responses.aggregate(pipeline)
+    stats = []
+    async for doc in cursor:
+        stats.append(ResponseTimeStats(**doc))
+    
+    return stats

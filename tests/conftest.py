@@ -1,1 +1,56 @@
-import pytest\nimport asyncio\nfrom httpx import AsyncClient\nfrom app.main import app\nfrom app.db.mongodb import connect_to_mongo, close_mongo_connection\nfrom motor.motor_asyncio import AsyncIOMotorClient\nfrom app.core.config import settings\n\n\n@pytest.fixture(scope=\"session\")\ndef event_loop():\n    \"\"\"Create an instance of the default event loop for the test session.\"\"\"\n    loop = asyncio.get_event_loop_policy().new_event_loop()\n    yield loop\n    loop.close()\n\n\n@pytest.fixture(scope=\"session\")\nasync def setup_test_db():\n    \"\"\"Setup test database\"\"\"\n    # Use a test database\n    original_db = settings.database_name\n    settings.database_name = \"basicapi_test\"\n    \n    # Connect to test database\n    await connect_to_mongo()\n    \n    yield\n    \n    # Cleanup: Drop test database and close connection\n    client = AsyncIOMotorClient(settings.mongodb_url)\n    await client.drop_database(\"basicapi_test\")\n    await close_mongo_connection()\n    \n    # Restore original database name\n    settings.database_name = original_db\n\n\n@pytest.fixture\nasync def client(setup_test_db):\n    \"\"\"Create test client\"\"\"\n    async with AsyncClient(app=app, base_url=\"http://test\") as ac:\n        yield ac\n\n\n@pytest.fixture\nasync def auth_headers(client):\n    \"\"\"Get authentication headers\"\"\"\n    # Login to get token\n    response = await client.post(\n        \"/api/v1/auth/token\",\n        auth=(\"admin\", \"secret\")\n    )\n    assert response.status_code == 200\n    token = response.json()[\"access_token\"]\n    return {\"Authorization\": f\"Bearer {token}\"}\n
+import pytest
+import asyncio
+from httpx import AsyncClient
+from app.main import app
+from app.db.mongodb import connect_to_mongo, close_mongo_connection
+from motor.motor_asyncio import AsyncIOMotorClient
+from app.core.config import settings
+
+
+@pytest.fixture(scope=\"session\")
+def event_loop():
+    \"\"\"Create an instance of the default event loop for the test session.\"\"\"
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(scope=\"session\")
+async def setup_test_db():
+    \"\"\"Setup test database\"\"\"
+    # Use a test database
+    original_db = settings.database_name
+    settings.database_name = \"basicapi_test\"
+    
+    # Connect to test database
+    await connect_to_mongo()
+    
+    yield
+    
+    # Cleanup: Drop test database and close connection
+    client = AsyncIOMotorClient(settings.mongodb_url)
+    await client.drop_database(\"basicapi_test\")
+    await close_mongo_connection()
+    
+    # Restore original database name
+    settings.database_name = original_db
+
+
+@pytest.fixture
+async def client(setup_test_db):
+    \"\"\"Create test client\"\"\"
+    async with AsyncClient(app=app, base_url=\"http://test\") as ac:
+        yield ac
+
+
+@pytest.fixture
+async def auth_headers(client):
+    \"\"\"Get authentication headers\"\"\"
+    # Login to get token
+    response = await client.post(
+        \"/api/v1/auth/token\",
+        auth=(\"admin\", \"secret\")
+    )
+    assert response.status_code == 200
+    token = response.json()[\"access_token\"]
+    return {\"Authorization\": f\"Bearer {token}\"}

@@ -10,7 +10,8 @@ echo "🚀 Setting up BasicAPI development environment..."
 python_version=$(python3 --version 2>&1 | grep -oP '(?<=Python )\d+\.\d+')
 required_version="3.11"
 
-if [[ $(echo "$python_version $required_version" | tr " " "\n" | sort -V | head -n1) != "$required_version" ]]; then
+if [[ $(echo "$python_version $required_version" | tr " " "
+" | sort -V | head -n1) != "$required_version" ]]; then
     echo "❌ Python 3.11+ is required. Found Python $python_version"
     echo "Please install Python 3.11+ and try again."
     exit 1
