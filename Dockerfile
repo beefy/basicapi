@@ -8,9 +8,9 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update \\
-    && apt-get install -y --no-install-recommends \\
-        build-essential \\
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create a non-root user
-RUN adduser --disabled-password --gecos '' --shell /bin/bash appuser \\
+RUN adduser --disabled-password --gecos '' --shell /bin/bash appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
