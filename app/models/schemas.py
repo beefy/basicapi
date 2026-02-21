@@ -127,3 +127,23 @@ class QueryParams(BaseModel):
     end_date: Optional[datetime] = None
     limit: int = Field(default=100, le=1000)
     skip: int = Field(default=0, ge=0)
+
+
+# API Key models
+class APIKeyCreate(BaseModel):
+    name: str = Field(..., description="Friendly name for the API key")
+    description: Optional[str] = None
+
+
+class APIKeyResponse(BaseModel):
+    name: str
+    key: str = Field(..., description="The actual API key (only shown once)")
+    description: Optional[str] = None
+    created_at: datetime
+
+
+class APIKeyInfo(BaseModel):
+    name: str
+    description: Optional[str] = None
+    created_at: datetime
+    last_used: Optional[datetime] = None
