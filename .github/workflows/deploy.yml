@@ -54,7 +54,7 @@ jobs:
           MONGODB_URL=${{ secrets.MONGODB_URL }}
           DATABASE_NAME=${{ secrets.DATABASE_NAME }}
           SECRET_KEY=${{ secrets.SECRET_KEY }}
-          ALLOWED_USERNAMES=pi-livingroom,pi-bedroom,pi-kitchen
+          ALLOWED_USERNAMES='${{ secrets.ALLOWED_USERNAMES }}'
         flags: |
           --allow-unauthenticated
           --port=8000
