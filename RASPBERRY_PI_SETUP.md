@@ -56,25 +56,29 @@ Unlike IP whitelisting, you don't need to configure any IP addresses. The system
    python -m uvicorn app.main:app --reload
    ```
 
-2. **Get an admin token**:
+2. **Bootstrap your first admin API key** (one-time only):
    ```bash
-   curl -X POST "http://localhost:8000/api/v1/auth/token" \
-        -u admin:secret
+   curl -X POST "http://localhost:8000/api/v1/bootstrap/bootstrap-admin"
    ```
+   
+   **Save the returned admin API key** - you'll need it to create device keys!
+   
+   ⚠️ **Important**: This endpoint only works once. After the first admin key is created, it becomes disabled for security.
 
 3. **Create API keys for each Pi with their device fingerprint**:
    ```bash
    curl -X POST "http://localhost:8000/api/v1/api-keys/create" \
-        -H "Authorization: Bearer YOUR_TOKEN" \
+        -H "X-API-Key: YOUR_ADMIN_API_KEY" \
         -H "Content-Type: application/json" \
         -d '{
           "name": "raspberry-pi-1",
           "description": "Living room Pi sensor",
-          "device_id": "YOUR_PI_DEVICE_FINGERPRINT_HERE"
+          "device_id": "YOUR_PI_DEVICE_FINGERPRINT_HERE",
+          "is_admin": false
         }'
    ```
 
-   **Save the returned API key** - it's only shown once!
+   **Save the returned Pi API key** - it's only shown once!
 
 ## Step 4: Setup Raspberry Pi
 
@@ -124,7 +128,8 @@ Unlike IP whitelisting, you don't need to configure any IP addresses. The system
    ```bash
    # From your Pi
    curl -X POST "http://your-api-domain.com/api/v1/status-updates/" \
-        -H "X-API-Key: YOUR_API_KEY" \
+        -H "X-API-Key: YOUR_PI_API_KEY" \
+        -H "X-Device-ID: YOUR_PI_FINGERPRINT" \
         -H "Content-Type: application/json" \
         -d '{
           "agent_name": "raspberry-pi-1",
@@ -176,11 +181,71 @@ response = requests.post(
 - Platform and hostname details
 
 🛡️ **If someone steals your Pi**:
-1. Delete the API key from your server
-2. The thief can't create a new key (requires admin access)
+1. Delete the API key from your server using your admin key
+2. The thief can't create a new key (requires admin API key access)
 3. Even with the API key, they need the exact hardware fingerprint
 
 ⚡ **If you reimage/replace your Pi**:
 1. The device fingerprint will change
-2. Create a new API key with the new fingerprint
+2. Create a new API key with the new fingerprint using your admin key
 3. Delete the old key from the server
+
+## API Key Management
+
+### List all API keys
+```bash
+curl -X GET "http://localhost:8000/api/v1/api-keys/list" \
+     -H "X-API-Key: YOUR_ADMIN_API_KEY"
+```
+
+### Delete an API key
+```bash
+curl -X DELETE "http://localhost:8000/api/v1/api-keys/raspberry-pi-1" \
+     -H "X-API-Key: YOUR_ADMIN_API_KEY"
+```
+
+### Create additional admin keys (if needed)
+```bash
+curl -X POST "http://localhost:8000/api/v1/api-keys/create" \
+     -H "X-API-Key: YOUR_EXISTING_ADMIN_KEY" \
+     -d '{
+       "name": "admin-backup",
+       "description": "Backup admin key",
+       "is_admin": true
+     }'
+```
+
+## Security Best Practices
+
+1. **Secure your admin API key** - Store it safely, never commit to code
+2. **Use HTTPS in production** - Never send API keys over HTTP
+3. **Monitor key usage** - Check the last_used timestamps regularly
+4. **Rotate keys periodically** - Create new keys and delete old ones
+5. **Principle of least privilege** - Only create admin keys when absolutely necessary
+
+## Troubleshooting
+
+### "Admin API key already exists" during bootstrap
+- The bootstrap endpoint only works once for security
+- Use your existing admin key to create more keys
+- If you lost your admin key, you'll need to reset the api_keys_db
+
+### "Invalid API key or device fingerprint"
+- Ensure the API key is correct
+- Verify the device fingerprint matches exactly
+- Check that the key hasn't been deleted
+
+### "Device fingerprint mismatch"
+- The Pi's hardware may have changed (network card, etc.)
+- Generate a new fingerprint and create a new API key
+- Delete the old key
+
+### Connection timeouts
+- Verify your API server is reachable
+- Check firewall settings
+- Ensure MongoDB is running
+
+### No data appearing
+- Check the Pi's monitoring logs: `tail -f /home/pi/monitor.log`
+- Verify the API server logs for errors
+- Test manual API calls from the Pi with both headers
