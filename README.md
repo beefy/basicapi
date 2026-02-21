@@ -39,37 +39,37 @@ A comprehensive FastAPI application for monitoring and storing agent data with M
 ### Status Updates
 ```json
 {
-  \"agent_name\": \"string\",
-  \"update_text\": \"string\",
-  \"timestamp\": \"2024-01-01T10:00:00Z\"
+  "agent_name": "string",
+  "update_text": "string",
+  "timestamp": "2024-01-01T10:00:00Z"
 }
 ```
 
 ### System Information
 ```json
 {
-  \"agent_name\": \"string\",
-  \"cpu\": 75.5,
-  \"memory\": 60.2,
-  \"disk\": 45.1,
-  \"ts\": \"2024-01-01T10:00:00Z\"
+  "agent_name": "string",
+  "cpu": 75.5,
+  "memory": 60.2,
+  "disk": 45.1,
+  "ts": "2024-01-01T10:00:00Z"
 }
 ```
 
 ### Response Times
 ```json
 {
-  \"agent_name\": \"string\",
-  \"received_ts\": \"2024-01-01T10:00:00Z\",
-  \"sent_ts\": \"2024-01-01T10:00:01Z\"
+  "agent_name": "string",
+  "received_ts": "2024-01-01T10:00:00Z",
+  "sent_ts": "2024-01-01T10:00:01Z"
 }
 ```
 
 ### Heartbeats
 ```json
 {
-  \"agent_name\": \"string\",
-  \"last_heartbeat_ts\": \"2024-01-01T10:00:00Z\"
+  "agent_name": "string",
+  "last_heartbeat_ts": "2024-01-01T10:00:00Z"
 }
 ```
 
@@ -136,7 +136,7 @@ A comprehensive FastAPI application for monitoring and storing agent data with M
      app:
        build: .
        ports:
-         - \"8000:8000\"
+         - "8000:8000"
        environment:
          - MONGODB_URL=mongodb://mongodb:27017
          - DATABASE_NAME=basicapi
@@ -147,7 +147,7 @@ A comprehensive FastAPI application for monitoring and storing agent data with M
      mongodb:
        image: mongo:latest
        ports:
-         - \"27017:27017\"
+         - "27017:27017"
        volumes:
          - mongodb_data:/data/db
    
@@ -175,17 +175,17 @@ All POST endpoints (data storage) require authentication. Use the following step
 
 1. **Get an access token**:
    ```bash
-   curl -X POST \"http://localhost:8000/api/v1/auth/token\" \\
-        -H \"Content-Type: application/x-www-form-urlencoded\" \\
+   curl -X POST "http://localhost:8000/api/v1/auth/token" \\
+        -H "Content-Type: application/x-www-form-urlencoded" \\
         -u admin:secret
    ```
 
 2. **Use the token in requests**:
    ```bash
-   curl -X POST \"http://localhost:8000/api/v1/status-updates/\" \\
-        -H \"Authorization: Bearer YOUR_TOKEN_HERE\" \\
-        -H \"Content-Type: application/json\" \\
-        -d '{\"agent_name\": \"test\", \"update_text\": \"Hello\"}'
+   curl -X POST "http://localhost:8000/api/v1/status-updates/" \\
+        -H "Authorization: Bearer YOUR_TOKEN_HERE" \\
+        -H "Content-Type: application/json" \\
+        -d '{"agent_name": "test", "update_text": "Hello"}'
    ```
 
 ## Database Migrations
@@ -241,7 +241,7 @@ Add these secrets to your GitHub repository:
      --image=us-central1-docker.pkg.dev/PROJECT_ID/basicapi/basicapi:latest \\
      --region=us-central1 \\
      --allow-unauthenticated \\
-     --set-env-vars=\"MONGODB_URL=your-mongodb-url,DATABASE_NAME=basicapi,SECRET_KEY=your-secret\"
+     --set-env-vars="MONGODB_URL=your-mongodb-url,DATABASE_NAME=basicapi,SECRET_KEY=your-secret"
    ```
 
 ### Automated Deployment
@@ -276,50 +276,50 @@ GCP_REGION=us-central1
 ### Store Status Update
 ```bash
 # Get token first
-TOKEN=$(curl -s -X POST \"http://localhost:8000/api/v1/auth/token\" -u admin:secret | jq -r '.access_token')
+TOKEN=$(curl -s -X POST "http://localhost:8000/api/v1/auth/token" -u admin:secret | jq -r '.access_token')
 
 # Store status update
-curl -X POST \"http://localhost:8000/api/v1/status-updates/\" \\
-     -H \"Authorization: Bearer $TOKEN\" \\
-     -H \"Content-Type: application/json\" \\
+curl -X POST "http://localhost:8000/api/v1/status-updates/" \\
+     -H "Authorization: Bearer $TOKEN" \\
+     -H "Content-Type: application/json" \\
      -d '{
-       \"agent_name\": \"web-server-01\",
-       \"update_text\": \"Service started successfully\"
+       "agent_name": "web-server-01",
+       "update_text": "Service started successfully"
      }'
 ```
 
 ### Query Status Updates
 ```bash
 # Get all status updates
-curl \"http://localhost:8000/api/v1/status-updates/\"
+curl "http://localhost:8000/api/v1/status-updates/"
 
 # Filter by agent name
-curl \"http://localhost:8000/api/v1/status-updates/?agent_name=web-server-01\"
+curl "http://localhost:8000/api/v1/status-updates/?agent_name=web-server-01"
 
 # Filter by date range
-curl \"http://localhost:8000/api/v1/status-updates/?start_date=2024-01-01T00:00:00&end_date=2024-01-02T00:00:00\"
+curl "http://localhost:8000/api/v1/status-updates/?start_date=2024-01-01T00:00:00&end_date=2024-01-02T00:00:00"
 ```
 
 ### Store System Information
 ```bash
-curl -X POST \"http://localhost:8000/api/v1/system-info/\" \\
-     -H \"Authorization: Bearer $TOKEN\" \\
-     -H \"Content-Type: application/json\" \\
+curl -X POST "http://localhost:8000/api/v1/system-info/" \\
+     -H "Authorization: Bearer $TOKEN" \\
+     -H "Content-Type: application/json" \\
      -d '{
-       \"agent_name\": \"web-server-01\",
-       \"cpu\": 75.5,
-       \"memory\": 60.2,
-       \"disk\": 45.1
+       "agent_name": "web-server-01",
+       "cpu": 75.5,
+       "memory": 60.2,
+       "disk": 45.1
      }'
 ```
 
 ### Get Response Time Statistics
 ```bash
 # Get average response times for all agents
-curl \"http://localhost:8000/api/v1/response-times/stats\"
+curl "http://localhost:8000/api/v1/response-times/stats"
 
 # Filter by agent
-curl \"http://localhost:8000/api/v1/response-times/stats?agent_name=web-server-01\"
+curl "http://localhost:8000/api/v1/response-times/stats?agent_name=web-server-01"
 ```
 
 ## Project Structure

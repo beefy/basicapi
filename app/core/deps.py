@@ -11,12 +11,12 @@ security = HTTPBearer()
 # For demo purposes, we'll use a simple in-memory user store
 # In production, this should be in a proper database
 fake_users_db = {
-    \"admin\": {
-        \"username\": \"admin\",
-        \"full_name\": \"Admin User\",
-        \"email\": \"admin@example.com\",
-        \"hashed_password\": \"$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW\",  # \"secret\"
-        \"disabled\": False,
+    "admin": {
+        "username": "admin",
+        "full_name": "Admin User",
+        "email": "admin@example.com",
+        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",  # "secret"
+        "disabled": False,
     }
 }
 
@@ -33,8 +33,8 @@ async def get_current_user(
 ) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=\"Could not validate credentials\",
-        headers={\"WWW-Authenticate\": \"Bearer\"},
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
     )
     
     token = credentials.credentials
@@ -52,5 +52,5 @@ async def get_current_user(
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
     if current_user.disabled:
-        raise HTTPException(status_code=400, detail=\"Inactive user\")
+        raise HTTPException(status_code=400, detail="Inactive user")
     return current_user

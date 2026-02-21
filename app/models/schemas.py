@@ -12,12 +12,12 @@ class PyObjectId(ObjectId):
     @classmethod
     def validate(cls, v):
         if not ObjectId.is_valid(v):
-            raise ValueError(\"Invalid objectid\")
+            raise ValueError("Invalid objectid")
         return ObjectId(v)
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):
-        return {\"type\": \"string\"}
+        return {"type": "string"}
 
 
 class StatusUpdateBase(BaseModel):
@@ -31,7 +31,7 @@ class StatusUpdateCreate(StatusUpdateBase):
 
 
 class StatusUpdateResponse(StatusUpdateBase):
-    id: Optional[PyObjectId] = Field(alias=\"_id\")
+    id: Optional[PyObjectId] = Field(alias="_id")
 
     class Config:
         populate_by_name = True
@@ -49,7 +49,7 @@ class ResponseTimeCreate(ResponseTimeBase):
 
 
 class ResponseTimeResponse(ResponseTimeBase):
-    id: Optional[PyObjectId] = Field(alias=\"_id\")
+    id: Optional[PyObjectId] = Field(alias="_id")
 
     class Config:
         populate_by_name = True
@@ -64,9 +64,9 @@ class ResponseTimeStats(BaseModel):
 
 class SystemInfoBase(BaseModel):
     agent_name: str
-    cpu: float = Field(..., description=\"CPU usage percentage\")
-    memory: float = Field(..., description=\"Memory usage percentage\")
-    disk: float = Field(..., description=\"Disk usage percentage\")
+    cpu: float = Field(..., description="CPU usage percentage")
+    memory: float = Field(..., description="Memory usage percentage")
+    disk: float = Field(..., description="Disk usage percentage")
     ts: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -75,7 +75,7 @@ class SystemInfoCreate(SystemInfoBase):
 
 
 class SystemInfoResponse(SystemInfoBase):
-    id: Optional[PyObjectId] = Field(alias=\"_id\")
+    id: Optional[PyObjectId] = Field(alias="_id")
 
     class Config:
         populate_by_name = True
@@ -92,7 +92,7 @@ class HeartbeatCreate(HeartbeatBase):
 
 
 class HeartbeatResponse(HeartbeatBase):
-    id: Optional[PyObjectId] = Field(alias=\"_id\")
+    id: Optional[PyObjectId] = Field(alias="_id")
 
     class Config:
         populate_by_name = True

@@ -7,20 +7,20 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from app.core.config import settings
 
 
-@pytest.fixture(scope=\"session\")
+@pytest.fixture(scope="session")
 def event_loop():
-    \"\"\"Create an instance of the default event loop for the test session.\"\"\"
+    """Create an instance of the default event loop for the test session."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
 
 
-@pytest.fixture(scope=\"session\")
+@pytest.fixture(scope="session")
 async def setup_test_db():
-    \"\"\"Setup test database\"\"\"
+    """Setup test database"""
     # Use a test database
     original_db = settings.database_name
-    settings.database_name = \"basicapi_test\"
+    settings.database_name = "basicapi_test"
     
     # Connect to test database
     await connect_to_mongo()
@@ -29,7 +29,7 @@ async def setup_test_db():
     
     # Cleanup: Drop test database and close connection
     client = AsyncIOMotorClient(settings.mongodb_url)
-    await client.drop_database(\"basicapi_test\")
+    await client.drop_database("basicapi_test")
     await close_mongo_connection()
     
     # Restore original database name
@@ -38,19 +38,19 @@ async def setup_test_db():
 
 @pytest.fixture
 async def client(setup_test_db):
-    \"\"\"Create test client\"\"\"
-    async with AsyncClient(app=app, base_url=\"http://test\") as ac:
+    """Create test client"""
+    async with AsyncClient(app=app, base_url="http://test") as ac:
         yield ac
 
 
 @pytest.fixture
 async def auth_headers(client):
-    \"\"\"Get authentication headers\"\"\"
+    """Get authentication headers"""
     # Login to get token
     response = await client.post(
-        \"/api/v1/auth/token\",
-        auth=(\"admin\", \"secret\")
+        "/api/v1/auth/token",
+        auth=("admin", "secret")
     )
     assert response.status_code == 200
-    token = response.json()[\"access_token\"]
-    return {\"Authorization\": f\"Bearer {token}\"}
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}

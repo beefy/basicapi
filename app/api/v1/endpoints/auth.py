@@ -9,18 +9,18 @@ router = APIRouter()
 security = HTTPBasic()
 
 
-@router.post(\"/token\", response_model=Token)
+@router.post("/token", response_model=Token)
 async def login_for_access_token(credentials: HTTPBasicCredentials = Depends(security)):
-    \"\"\"Authenticate and get access token\"\"\"
+    """Authenticate and get access token"""
     user_dict = fake_users_db.get(credentials.username)
-    if not user_dict or not verify_password(credentials.password, user_dict[\"hashed_password\"]):
+    if not user_dict or not verify_password(credentials.password, user_dict["hashed_password"]):
         raise HTTPException(
             status_code=400,
-            detail=\"Incorrect username or password\"
+            detail="Incorrect username or password"
         )
     
     access_token_expires = timedelta(minutes=30)
     access_token = create_access_token(
         subject=credentials.username, expires_delta=access_token_expires
     )
-    return {\"access_token\": access_token, \"token_type\": \"bearer\"}
+    return {"access_token": access_token, "token_type": "bearer"}
