@@ -1,251 +1,283 @@
-# Raspberry Pi Setup Guide - Device Fingerprinting Authentication
+# Raspberry Pi Setup Guide - Simple Authentication
 
-This guide shows how to securely connect your Raspberry Pi devices to your FastAPI monitoring system using **device fingerprinting** instead of IP whitelisting. This approach works perfectly with dynamic IP addresses.
+This guide shows how to securely connect your Raspberry Pi devices to your FastAPI monitoring system using **standard username/password authentication**. Much simpler than the previous complex system!
 
 ## Security Features
 
-✅ **Device Fingerprinting** - Each Pi has a unique hardware-based fingerprint  
-✅ **API Key + Device ID** - API keys are tied to specific hardware  
-✅ **Hardware-based Security** - Uses CPU serial, MAC address, board model  
+✅ **Standard Authentication** - Username and password like any website  
+✅ **JWT Tokens** - Secure, time-limited access tokens  
 ✅ **Dynamic IP Support** - Works from anywhere with any IP address  
-✅ **Usage Tracking** - See when each device was last used  
+✅ **Automatic Token Refresh** - Pi handles login automatically  
+✅ **No Complex Setup** - Just register a user and go!  
 
 ## How It Works
 
-1. **Device Fingerprint Generation** - The Pi creates a unique ID based on:
-   - CPU serial number (unique to each Pi)
-   - MAC address of network interface  
-   - Board model and revision
-   - Hostname and platform info
+1. **User Registration** - Create a username/password for each Pi
+2. **Pi Login** - Pi logs in and gets a JWT token  
+3. **API Calls** - Pi uses token for authenticated requests
+4. **Auto-Refresh** - Pi automatically gets new tokens when they expire
 
-2. **API Key Registration** - Admin creates API keys tied to specific device fingerprints
-
-3. **Authentication** - Each API call includes both the API key and device fingerprint
-
-4. **Verification** - Server verifies the API key AND that it matches the device fingerprint
-
-## Step 1: No IP Configuration Needed! 🎉
-
-Unlike IP whitelisting, you don't need to configure any IP addresses. The system works with dynamic IPs automatically.
-
-## Step 2: Get Device Fingerprint from Your Pi
-
-1. **Copy the client script to your Pi**:
-   ```bash
-   scp raspberry_pi_client.py pi@YOUR_PI_IP:/home/pi/
-   ```
-
-2. **SSH into your Pi and get the device fingerprint**:
-   ```bash
-   ssh pi@YOUR_PI_IP
-   cd /home/pi
-   python3 -c "
-   import sys
-   sys.path.append('.')
-   from raspberry_pi_client import get_device_fingerprint
-   print('Device Fingerprint:', get_device_fingerprint())
-   "
-   ```
-
-   **Save this fingerprint** - you'll need it to create the API key!
-
-## Step 3: Generate API Keys
+## Step 1: Register Your Pi as a User
 
 1. **Start your API server**:
    ```bash
    python -m uvicorn app.main:app --reload
    ```
 
-2. **Bootstrap your first admin API key** (one-time only):
+2. **Register each Pi as a user**:
    ```bash
-   curl -X POST "http://localhost:8000/api/v1/bootstrap/bootstrap-admin"
-   ```
-   
-   **Save the returned admin API key** - you'll need it to create device keys!
-   
-   ⚠️ **Important**: This endpoint only works once. After the first admin key is created, it becomes disabled for security.
-
-3. **Create API keys for each Pi with their device fingerprint**:
-   ```bash
-   curl -X POST "http://localhost:8000/api/v1/api-keys/create" \
-        -H "X-API-Key: YOUR_ADMIN_API_KEY" \
+   curl -X POST "http://localhost:8000/api/v1/auth/register" \
         -H "Content-Type: application/json" \
         -d '{
-          "name": "raspberry-pi-1",
-          "description": "Living room Pi sensor",
-          "device_id": "YOUR_PI_DEVICE_FINGERPRINT_HERE",
-          "is_admin": false
+          "username": "pi-livingroom",
+          "password": "secure-password-here", 
+          "full_name": "Living Room Pi Sensor"
         }'
    ```
 
-   **Save the returned Pi API key** - it's only shown once!
+3. **Test login** to make sure it works:
+   ```bash
+   curl -X POST "http://localhost:8000/api/v1/auth/login" \
+        -u pi-livingroom:secure-password-here
+   ```
 
-## Step 4: Setup Raspberry Pi
+   You should get back a JWT token like:
+   ```json
+   {"access_token": "eyJ...", "token_type": "bearer"}
+   ```
+
+## Step 2: Setup Raspberry Pi Client
 
 1. **Copy the client script to your Pi**:
    ```bash
    scp raspberry_pi_client.py pi@YOUR_PI_IP:/home/pi/
    ```
 
-2. **SSH into your Pi and run setup**:
-   ```bash
-   ssh pi@YOUR_PI_IP
-   cd /home/pi
-   python3 raspberry_pi_client.py --setup
+2. **Create a simple config file** on your Pi (`/home/pi/pi_config.py`):
+   ```python
+   # Pi Configuration
+   API_URL = "http://your-api-server.com"  # Change to your server
+   USERNAME = "pi-livingroom"               # Your Pi's username
+   PASSWORD = "secure-password-here"       # Your Pi's password
+   AGENT_NAME = "pi-livingroom"            # Name for data logging
    ```
 
-3. **Enter your API key** when prompted
-
-4. **Test the connection** - the script will send initial data
-
-## Step 4: Set Up Automated Monitoring
-
-1. **Create a monitoring script** (`/home/pi/monitor.py`):
+3. **Create the monitoring script** (`/home/pi/pi_monitor.py`):
    ```python
    #!/usr/bin/env python3
-   import subprocess
-   import sys
+   import requests
+   import json
+   import time
+   import psutil
+   from datetime import datetime, timedelta
+   from pi_config import API_URL, USERNAME, PASSWORD, AGENT_NAME
    
-   # Run the monitoring
-   subprocess.run([sys.executable, "/home/pi/raspberry_pi_client.py"])
+   
+   class PiAuth:
+       def __init__(self):
+           self.token = None
+           self.token_expires = None
+       
+       def login(self):
+           """Get new JWT token"""
+           try:
+               response = requests.post(
+                   f"{API_URL}/api/v1/auth/login",
+                   auth=(USERNAME, PASSWORD),
+                   timeout=10
+               )
+               if response.status_code == 200:
+                   data = response.json()
+                   self.token = data["access_token"]
+                   # Tokens expire in 30 minutes, refresh at 25 minutes
+                   self.token_expires = datetime.now() + timedelta(minutes=25)
+                   print(f"✅ Logged in successfully")
+                   return True
+               else:
+                   print(f"❌ Login failed: {response.status_code}")
+                   return False
+           except Exception as e:
+               print(f"❌ Login error: {e}")
+               return False
+       
+       def get_headers(self):
+           """Get authorization headers, auto-login if needed"""
+           if not self.token or datetime.now() >= self.token_expires:
+               if not self.login():
+                   raise Exception("Failed to authenticate")
+           
+           return {"Authorization": f"Bearer {self.token}"}
+       
+       def post_data(self, endpoint, data):
+           """Post data to authenticated endpoint"""
+           try:
+               response = requests.post(
+                   f"{API_URL}{endpoint}",
+                   json=data,
+                   headers=self.get_headers(),
+                   timeout=10
+               )
+               if response.status_code == 200:
+                   print(f"✅ Posted to {endpoint}")
+                   return True
+               else:
+                   print(f"❌ Post failed to {endpoint}: {response.status_code}")
+                   return False
+           except Exception as e:
+               print(f"❌ Post error to {endpoint}: {e}")
+               return False
+   
+   
+   def get_system_stats():
+       """Get current system statistics"""
+       return {
+           "agent_name": AGENT_NAME,
+           "cpu": psutil.cpu_percent(interval=1),
+           "memory": psutil.virtual_memory().percent,
+           "disk": psutil.disk_usage('/').percent,
+           "ts": datetime.utcnow().isoformat() + "Z"
+       }
+   
+   
+   def main():
+       print(f"🤖 Starting Pi Monitor for {AGENT_NAME}")
+       auth = PiAuth()
+       
+       # Send system info
+       system_stats = get_system_stats()
+       auth.post_data("/api/v1/system-info/", system_stats)
+       
+       # Send status update
+       status_update = {
+           "agent_name": AGENT_NAME,
+           "update_text": f"System check - CPU: {system_stats['cpu']:.1f}%, RAM: {system_stats['memory']:.1f}%",
+           "timestamp": datetime.utcnow().isoformat() + "Z"
+       }
+       auth.post_data("/api/v1/status-updates/", status_update)
+       
+       # Send heartbeat
+       heartbeat = {
+           "agent_name": AGENT_NAME,
+           "last_heartbeat_ts": datetime.utcnow().isoformat() + "Z"
+       }
+       auth.post_data("/api/v1/heartbeat/", heartbeat)
+       
+       print(f"✅ Monitoring complete for {AGENT_NAME}")
+   
+   
+   if __name__ == "__main__":
+       main()
    ```
 
-2. **Make it executable**:
+4. **Install required packages** on your Pi:
    ```bash
-   chmod +x /home/pi/monitor.py
+   pip3 install requests psutil
    ```
 
-3. **Add to crontab for automatic execution**:
+5. **Test the script**:
+   ```bash
+   python3 /home/pi/pi_monitor.py
+   ```
+
+## Step 3: Set Up Automated Monitoring
+
+1. **Make the script executable**:
+   ```bash
+   chmod +x /home/pi/pi_monitor.py
+   ```
+
+2. **Add to crontab for automatic execution**:
    ```bash
    crontab -e
    # Add this line to run every 5 minutes:
-   */5 * * * * /usr/bin/python3 /home/pi/monitor.py >> /home/pi/monitor.log 2>&1
+   */5 * * * * /usr/bin/python3 /home/pi/pi_monitor.py >> /home/pi/monitor.log 2>&1
    ```
 
-## Step 5: Test Everything
-
-1. **Test API key authentication**:
+3. **Check the logs**:
    ```bash
-   # From your Pi
-   curl -X POST "http://your-api-domain.com/api/v1/status-updates/" \
-        -H "X-API-Key: YOUR_PI_API_KEY" \
-        -H "X-Device-ID: YOUR_PI_FINGERPRINT" \
-        -H "Content-Type: application/json" \
-        -d '{
-          "agent_name": "raspberry-pi-1",
-          "update_text": "Test from Pi"
-        }'
+   tail -f /home/pi/monitor.log
    ```
 
-2. **Check the API logs** to see data coming in
+## Step 4: View Your Data
 
-3. **View the data** at `http://your-api-domain.com/docs`
+1. **API Documentation**: http://your-api-server.com/docs
+2. **Query data** (no authentication needed for GET):
+   ```bash
+   # Get all status updates
+   curl "http://your-api-server.com/api/v1/status-updates/"
+   
+   # Get data for specific Pi
+   curl "http://your-api-server.com/api/v1/status-updates/?agent_name=pi-livingroom"
+   
+   # Get system info
+   curl "http://your-api-server.com/api/v1/system-info/?agent_name=pi-livingroom"
+   ```
 
-## API Usage Examples
+## Why This is Much Better
 
-### Send Status Update
-```python
-import requests
-
-headers = {
-    "X-API-Key": "your-api-key-here",
-    "X-Device-ID": "your-device-fingerprint"
-}
-data = {
-    "agent_name": "raspberry-pi-1",
-    "update_text": "Sensor readings normal",
-    "timestamp": "2024-01-01T12:00:00"
-}
-
-response = requests.post(
-    "http://your-api-domain.com/api/v1/status-updates/",
-    json=data,
-    headers=headers
-)
-```
-
-## Why Device Fingerprinting is Better Than IP Whitelisting
-
-✅ **Dynamic IP Support** - Works with any internet connection  
-✅ **Hardware Security** - Tied to actual physical device  
-✅ **No Network Config** - No need to manage IP lists  
-✅ **Travel Friendly** - Pi can work from anywhere  
-✅ **Harder to Spoof** - Requires physical access to the device  
+✅ **Simpler** - No device fingerprinting complexity  
+✅ **Standard** - Uses normal web authentication everyone understands  
+✅ **Secure** - JWT tokens expire automatically (30 minutes)  
+✅ **Portable** - Pi can move networks without reconfiguration  
+✅ **Debuggable** - Standard HTTP auth tools work  
+✅ **Familiar** - Like logging into any website  
 
 ## Security Notes
 
-🔒 **Device fingerprints include**:
-- CPU serial number (unique to each Pi)
-- MAC address of primary network interface
-- Board model and revision information
-- Platform and hostname details
+🔒 **Store credentials securely** on your Pi:
+- Keep `/home/pi/pi_config.py` permissions restricted: `chmod 600 pi_config.py`
+- Use strong passwords for each Pi user account
+- Consider using environment variables instead of config files
 
 🛡️ **If someone steals your Pi**:
-1. Delete the API key from your server using your admin key
-2. The thief can't create a new key (requires admin API key access)
-3. Even with the API key, they need the exact hardware fingerprint
+1. Change the password for that Pi's user account
+2. All existing tokens become invalid immediately
+3. The thief can't access your API without the new password
 
 ⚡ **If you reimage/replace your Pi**:
-1. The device fingerprint will change
-2. Create a new API key with the new fingerprint using your admin key
-3. Delete the old key from the server
-
-## API Key Management
-
-### List all API keys
-```bash
-curl -X GET "http://localhost:8000/api/v1/api-keys/list" \
-     -H "X-API-Key: YOUR_ADMIN_API_KEY"
-```
-
-### Delete an API key
-```bash
-curl -X DELETE "http://localhost:8000/api/v1/api-keys/raspberry-pi-1" \
-     -H "X-API-Key: YOUR_ADMIN_API_KEY"
-```
-
-### Create additional admin keys (if needed)
-```bash
-curl -X POST "http://localhost:8000/api/v1/api-keys/create" \
-     -H "X-API-Key: YOUR_EXISTING_ADMIN_KEY" \
-     -d '{
-       "name": "admin-backup",
-       "description": "Backup admin key",
-       "is_admin": true
-     }'
-```
-
-## Security Best Practices
-
-1. **Secure your admin API key** - Store it safely, never commit to code
-2. **Use HTTPS in production** - Never send API keys over HTTP
-3. **Monitor key usage** - Check the last_used timestamps regularly
-4. **Rotate keys periodically** - Create new keys and delete old ones
-5. **Principle of least privilege** - Only create admin keys when absolutely necessary
+1. Keep the same username/password
+2. Copy the config and monitoring scripts
+3. No server-side changes needed!
 
 ## Troubleshooting
 
-### "Admin API key already exists" during bootstrap
-- The bootstrap endpoint only works once for security
-- Use your existing admin key to create more keys
-- If you lost your admin key, you'll need to reset the api_keys_db
-
-### "Invalid API key or device fingerprint"
-- Ensure the API key is correct
-- Verify the device fingerprint matches exactly
-- Check that the key hasn't been deleted
-
-### "Device fingerprint mismatch"
-- The Pi's hardware may have changed (network card, etc.)
-- Generate a new fingerprint and create a new API key
-- Delete the old key
+### "Could not validate credentials"
+- Check username/password are correct in `pi_config.py`
+- Verify the user account exists on the server
+- Test login manually with curl
 
 ### Connection timeouts
-- Verify your API server is reachable
+- Verify your API server is reachable from the Pi
 - Check firewall settings
-- Ensure MongoDB is running
+- Ensure API server is running
 
 ### No data appearing
 - Check the Pi's monitoring logs: `tail -f /home/pi/monitor.log`
-- Verify the API server logs for errors
-- Test manual API calls from the Pi with both headers
+- Look for HTTP error codes in the logs
+- Test the API endpoints manually from your computer
+
+### "Failed to authenticate" errors
+- The JWT token may have expired
+- Check if the API server is rejecting logins
+- Verify the system clock on your Pi is correct
+
+## Multiple Pi Setup
+
+For multiple Pis, just repeat the process:
+
+1. **Register each Pi** with a unique username:
+   ```bash
+   curl -X POST "http://localhost:8000/api/v1/auth/register" \
+        -H "Content-Type: application/json" \
+        -d '{"username": "pi-bedroom", "password": "another-secure-password"}'
+   
+   curl -X POST "http://localhost:8000/api/v1/auth/register" \
+        -H "Content-Type: application/json" \
+        -d '{"username": "pi-kitchen", "password": "yet-another-password"}'
+   ```
+
+2. **Update config on each Pi** with its unique credentials
+
+3. **Same monitoring script** works on all Pis!
+
+Much simpler than the old API key system! 🎉
