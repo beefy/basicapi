@@ -32,7 +32,7 @@ async def close_mongo_connection():
 
 async def create_indexes():
     """Create database indexes for performance"""
-    if not db.database:
+    if db.database is None:
         return
         
     # Status updates indexes

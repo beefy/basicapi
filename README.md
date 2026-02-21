@@ -2,6 +2,25 @@
 
 A comprehensive FastAPI application for monitoring and storing agent data with MongoDB backend, authentication, and automated deployment to Google Cloud Platform.
 
+## Setup
+```
+pip install -r requirements.txt
+python -m uvicorn app.main:app --reload
+```
+
+For local mongodb setup
+```
+# Install MongoDB Community Edition
+brew tap mongodb/brew
+brew install mongodb-community
+
+# Start MongoDB as a service (runs in background)
+brew services start mongodb/brew/mongodb-community
+
+# Or start manually (runs in foreground)
+mongod --config /opt/homebrew/etc/mongod.conf
+```
+
 ## Features
 
 - **RESTful API** built with FastAPI
