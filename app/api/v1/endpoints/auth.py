@@ -1,26 +1,48 @@
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBasicCredentials, HTTPBasic
-from datetime import timedelta
-from ....core.security import verify_password, create_access_token
-from ....core.deps import fake_users_db
-from ....models.schemas import Token
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from datetime import datetime, timedelta
+from jose import jwt
+from ....core.deps import authenticate_user, create_user
+from ....core.config import settings
+from ....models.schemas import Token, UserCreate
 
 router = APIRouter()
 security = HTTPBasic()
 
 
-@router.post("/token", response_model=Token)
-async def login_for_access_token(credentials: HTTPBasicCredentials = Depends(security)):
-    """Authenticate and get access token"""
-    user_dict = fake_users_db.get(credentials.username)
-    if not user_dict or not verify_password(credentials.password, user_dict["hashed_password"]):
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    """Create JWT access token"""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+    
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+    return encoded_jwt
+
+
+@router.post("/login", response_model=Token)
+async def login(credentials: HTTPBasicCredentials = Depends(security)):
+    """Login with username and password to get access token"""
+    user = await authenticate_user(credentials.username, credentials.password)
+    if not user:
         raise HTTPException(
-            status_code=400,
-            detail="Incorrect username or password"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Basic"},
         )
     
-    access_token_expires = timedelta(minutes=30)
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
-        subject=credentials.username, expires_delta=access_token_expires
+        data={"sub": user["username"]}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return Token(access_token=access_token, token_type="bearer")
+
+
+@router.post("/register")
+async def register(user_data: UserCreate):
+    """Register a new user (for initial setup)"""
+    user = await create_user(user_data.username, user_data.password, user_data.full_name)
+    return {"message": f"User {user_data.username} created successfully"}

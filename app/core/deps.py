@@ -1,83 +1,91 @@
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import APIKeyHeader
-from ..core.security import hash_api_key
-from ..models.schemas import User
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from ..core.security import verify_password, get_password_hash
+from ..core.config import settings
+from ..db.mongodb import get_database
+from ..models.schemas import User, TokenData
 from typing import Optional
-import hashlib
+from datetime import datetime
 
-api_key_header = APIKeyHeader(name="X-API-Key")
-device_id_header = APIKeyHeader(name="X-Device-ID", auto_error=False)
-
-# API keys storage with device fingerprinting
-# Format: {"hashed_key": {"name": "pi-1", "device_id": "fingerprint", "is_admin": False, "created_at": datetime}}
-api_keys_db = {}
+security = HTTPBearer(auto_error=False)
 
 
-def verify_device_fingerprint(device_id: str, stored_device_id: str) -> bool:
-    """Verify device fingerprint matches stored fingerprint"""
-    return device_id == stored_device_id
+async def get_users_collection():
+    """Get the users collection from MongoDB"""
+    db = await get_database()
+    return db.users
 
 
-async def get_current_user(
-    api_key: str = Depends(api_key_header),
-    device_id: Optional[str] = Depends(device_id_header)
-) -> User:
+async def get_user(username: str) -> Optional[dict]:
+    """Get user from database"""
+    collection = await get_users_collection()
+    return await collection.find_one({"username": username})
+
+
+async def authenticate_user(username: str, password: str) -> Optional[dict]:
+    """Authenticate user with username and password"""
+    user = await get_user(username)
+    if not user:
+        return None
+    if not verify_password(password, user["hashed_password"]):
+        return None
+    return user
+
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
+    """Get current user from JWT token"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid API key or device fingerprint",
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
     )
     
-    # Verify API key exists
-    hashed_key = hash_api_key(api_key)
-    if hashed_key not in api_keys_db:
+    if not credentials:
         raise credentials_exception
-    
-    key_data = api_keys_db[hashed_key]
-    
-    # For admin keys, device ID is optional
-    if key_data.get("is_admin", False):
-        if device_id and not verify_device_fingerprint(device_id, key_data.get("device_id", "")):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Device fingerprint mismatch for admin key"
-            )
-    else:
-        # For regular keys, device ID is required and must match
-        if not device_id:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Device ID required for this API key"
-            )
         
-        if not verify_device_fingerprint(device_id, key_data.get("device_id", "")):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Device fingerprint mismatch"
-            )
-    
-    # Update last used time
-    from datetime import datetime
-    api_keys_db[hashed_key]["last_used"] = datetime.utcnow()
-    
-    # Return user object
+    try:
+        payload = jwt.decode(credentials.credentials, settings.secret_key, algorithms=[settings.algorithm])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+        
+    user = await get_user(username=token_data.username)
+    if user is None:
+        raise credentials_exception
+        
     return User(
-        username=f"api-key:{key_data['name']}",
-        full_name=f"API Key: {key_data['name']}",
-        disabled=False
+        username=user["username"],
+        full_name=user.get("full_name", user["username"]),
+        disabled=user.get("disabled", False)
     )
 
 
-async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
-    """Require admin API key for certain operations"""
-    # Check if this user comes from an admin API key
-    username = current_user.username
-    if not username.startswith("api-key:"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
+    """Get current active user (not disabled)"""
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+
+async def create_user(username: str, password: str, full_name: str = None) -> dict:
+    """Create a new user"""
+    collection = await get_users_collection()
     
-    # Find the API key and check if it's admin
-    key_name = username.replace("api-key:", "")
-    for hashed_key, key_data in api_keys_db.items():
-        if key_data["name"] == key_name and key_data.get("is_admin", False):
-            return current_user
+    # Check if user already exists
+    if await get_user(username):
+        raise HTTPException(status_code=400, detail="Username already registered")
     
-    raise HTTPException(status_code=403, detail="Admin API key required")
+    user_data = {
+        "username": username,
+        "full_name": full_name or username,
+        "hashed_password": get_password_hash(password),
+        "disabled": False,
+        "created_at": datetime.utcnow()
+    }
+    
+    await collection.insert_one(user_data)
+    return user_data

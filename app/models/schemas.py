@@ -116,6 +116,12 @@ class User(BaseModel):
     disabled: Optional[bool] = None
 
 
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+
+
 class UserInDB(User):
     hashed_password: str
 

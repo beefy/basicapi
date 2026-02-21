@@ -34,29 +34,25 @@ mongod --config /opt/homebrew/etc/mongod.conf
 
 ## API Endpoints
 
-### Bootstrap (Admin Setup)
-- `POST /api/v1/bootstrap/admin-key` - Create first admin key (localhost only, requires bootstrap secret)
+### Authentication
+- `POST /api/v1/auth/login` - Login with username/password to get JWT token (Basic Auth)
+- `POST /api/v1/auth/register` - Register a new user account
 
-### Admin Management  
-- `POST /api/v1/admin/device-key` - Create device API keys (requires admin key)
-- `GET /api/v1/admin/keys` - List all API keys (requires admin key)
-- `DELETE /api/v1/admin/keys/{key_id}` - Delete API key (requires admin key)
-
-### Status Updates
-- `GET /api/v1/status-updates/` - Query status updates
-- `POST /api/v1/status-updates/` - Store status update (requires device key)
+### Status Updates  
+- `GET /api/v1/status-updates/` - Query status updates (public)
+- `POST /api/v1/status-updates/` - Store status update (requires auth)
 
 ### System Information
-- `GET /api/v1/system-info/` - Query system information
-- `POST /api/v1/system-info/` - Store system info (requires device key)
+- `GET /api/v1/system-info/` - Query system information (public)
+- `POST /api/v1/system-info/` - Store system info (requires auth)
 
 ### Response Times
-- `GET /api/v1/response-times/stats` - Get average response time statistics
-- `POST /api/v1/response-times/` - Store response time data (requires device key)
+- `GET /api/v1/response-times/stats` - Get average response time statistics (public)
+- `POST /api/v1/response-times/` - Store response time data (requires auth)
 
 ### Heartbeats
-- `GET /api/v1/heartbeat/` - Query heartbeats
-- `POST /api/v1/heartbeat/` - Store/update heartbeat (requires auth, upsert behavior)
+- `GET /api/v1/heartbeat/` - Query heartbeats (public)
+- `POST /api/v1/heartbeat/` - Store/update heartbeat (requires auth)
 
 ## Data Models
 
@@ -195,49 +191,94 @@ pytest tests/ --cov=app --cov-report=html
 
 ## Authentication & Setup
 
-The API uses API key authentication with device fingerprinting. Here's how to set it up:
+The API uses **standard username/password authentication** with JWT tokens. Much simpler!
 
-### Security Configuration
+### 🔧 **Simple Setup**
 
-The bootstrap endpoint for creating the first admin key is protected in two ways:
-
-1. **Localhost Only**: The bootstrap endpoint only accepts requests from localhost (127.0.0.1) for security
-2. **Bootstrap Secret**: You must provide a `bootstrap_secret` in the request body
-
-Set your bootstrap secret in the environment:
-```bash
-export BOOTSTRAP_SECRET=your-super-secret-bootstrap-key-change-this-in-production
-```
-
-### Initial Setup
-
-1. **Create your first admin API key** (must be done from localhost):
+1. **Create a user account** (can be done via API or directly in MongoDB):
    ```bash
-   curl -X POST http://localhost:8000/api/v1/bootstrap/admin-key \
+   curl -X POST http://localhost:8000/api/v1/auth/register \
      -H "Content-Type: application/json" \
-     -d '{"bootstrap_secret": "your-super-secret-bootstrap-key-change-this-in-production"}'
+     -d '{"username": "pi-livingroom", "password": "your-secure-password", "full_name": "Living Room Pi"}'
    ```
 
-2. **Create device keys for your Raspberry Pis** using the admin key:
+2. **Login to get a JWT token**:
    ```bash
-   curl -X POST http://localhost:8000/api/v1/admin/device-key \
-     -H "Authorization: Bearer YOUR_ADMIN_KEY" \
-     -H "Content-Type: application/json" \
-     -d '{"device_name": "pi-livingroom"}'
+   curl -X POST http://localhost:8000/api/v1/auth/login \
+     -u pi-livingroom:your-secure-password
    ```
 
-### Using Device Keys
-
-All POST endpoints require a device API key. The system automatically validates both the key and device fingerprint:
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/status-updates/" \
-     -H "Authorization: Bearer YOUR_DEVICE_KEY" \
+3. **Use the token for authenticated requests**:
+   ```bash
+   curl -X POST http://localhost:8000/api/v1/status-updates/ \
+     -H "Authorization: Bearer YOUR_JWT_TOKEN" \
      -H "Content-Type: application/json" \
-     -d '{"agent_name": "test", "update_text": "Hello"}'
-```
+     -d '{"agent_name": "pi-livingroom", "update_text": "Hello from Pi!"}'
+   ```
 
-**Note**: API keys don't expire automatically - they're permanent until you delete them. This is perfect for automated monitoring systems like Raspberry Pis that shouldn't need key rotation.
+### 🔑 **How Authentication Works**
+
+- **Anyone** can use GET endpoints (read data)
+- **Authenticated users only** can use POST endpoints (write data)  
+- **JWT tokens expire** after 30 minutes (configurable)
+- **Store username/password** securely on your Raspberry Pi
+- **No complex device fingerprinting** - just standard web authentication!
+
+### 📱 **Pi Authentication Script**
+
+Store credentials on your Pi and auto-login:
+
+```python
+import requests
+import json
+import os
+from datetime import datetime, timedelta
+
+class PiAuth:
+    def __init__(self, api_url, username, password):
+        self.api_url = api_url
+        self.username = username  
+        self.password = password
+        self.token = None
+        self.token_expires = None
+    
+    def login(self):
+        """Get new JWT token"""
+        response = requests.post(
+            f"{self.api_url}/api/v1/auth/login",
+            auth=(self.username, self.password)
+        )
+        if response.status_code == 200:
+            data = response.json()
+            self.token = data["access_token"]
+            self.token_expires = datetime.now() + timedelta(minutes=30)
+            return True
+        return False
+    
+    def get_headers(self):
+        """Get authorization headers, auto-login if needed"""
+        if not self.token or datetime.now() >= self.token_expires:
+            if not self.login():
+                raise Exception("Failed to authenticate")
+        
+        return {"Authorization": f"Bearer {self.token}"}
+    
+    def post_data(self, endpoint, data):
+        """Post data to authenticated endpoint"""
+        response = requests.post(
+            f"{self.api_url}{endpoint}",
+            json=data,
+            headers=self.get_headers()
+        )
+        return response
+
+# Usage on Pi
+auth = PiAuth("http://your-api-server.com", "pi-livingroom", "your-password")
+auth.post_data("/api/v1/status-updates/", {
+    "agent_name": "pi-livingroom", 
+    "update_text": "System healthy"
+})
+```
 
 ## Database Migrations
 
