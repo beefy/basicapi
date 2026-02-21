@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     
     # Security
     secret_key: str
-    bootstrap_secret: str  # Required - must be set via environment variable
     allowed_usernames: str = "pi-livingroom,pi-bedroom,pi-kitchen"  # Comma-separated list
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30

@@ -21,6 +21,8 @@ brew services start mongodb/brew/mongodb-community
 mongod --config /opt/homebrew/etc/mongod.conf
 ```
 
+http://127.0.0.1:8000/docs
+
 ## Features
 
 - **RESTful API** built with FastAPI
@@ -413,48 +415,3 @@ curl "http://localhost:8000/api/v1/response-times/stats"
 # Filter by agent
 curl "http://localhost:8000/api/v1/response-times/stats?agent_name=web-server-01"
 ```
-
-## Project Structure
-
-```
-basicapi/
-├── app/
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI application
-│   ├── api/
-│   │   └── v1/
-│   │       ├── api.py          # API router
-│   │       └── endpoints/      # Individual endpoint modules
-│   ├── core/
-│   │   ├── config.py           # Configuration settings
-│   │   ├── security.py         # JWT and password utilities
-│   │   └── deps.py             # Dependencies and auth
-│   ├── db/
-│   │   └── mongodb.py          # Database connection
-│   └── models/
-│       └── schemas.py          # Pydantic models
-├── migrations/                 # Database migrations
-├── tests/                      # Test files
-├── .github/
-│   └── workflows/
-│       └── deploy.yml          # GitHub Actions workflow
-├── requirements.txt
-├── Dockerfile
-├── docker-compose.yml
-├── migrate.py                  # Migration management script
-├── start.sh                    # Application start script
-└── README.md
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-An fastapi api that queries mongodb and is deployed on GCP
