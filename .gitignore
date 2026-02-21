@@ -49,6 +49,19 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Google Cloud
+.gcloudignore
+service-account-key.json
+
+# Logs
+*.log
+logs/
 cover/
 
 # Translations
