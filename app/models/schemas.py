@@ -151,7 +151,7 @@ class APIKeyInfo(BaseModel):
 
 # Email Newsletter models
 class NewsletterEmailBase(BaseModel):
-    email: str = Field(..., regex=r'^[^@]+@[^@]+\.[^@]+$', description="Valid email address")
+    email: str = Field(..., pattern=r'^[^@]+@[^@]+\.[^@]+$', description="Valid email address")
 
 
 class NewsletterEmailCreate(NewsletterEmailBase):
