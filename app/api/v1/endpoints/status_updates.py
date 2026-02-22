@@ -70,7 +70,7 @@ async def get_status_updates(
     total_count = await db.status_updates.count_documents({})
     print(f"DEBUG GET: Total documents in collection: {total_count}")
     
-    cursor = db.status_updates.find(filter_dict).skip(skip).limit(limit).sort("timestamp", -1)
+    cursor = db.status_updates.find(filter_dict).sort("timestamp", -1).skip(skip).limit(limit)
     status_updates = []
     async for doc in cursor:
         print(f"DEBUG GET: Found document: {doc}")
