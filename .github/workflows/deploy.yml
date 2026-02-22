@@ -50,6 +50,7 @@ jobs:
         service: ${{ env.SERVICE }}
         region: ${{ env.REGION }}
         image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE }}/${{ env.SERVICE }}:${{ github.sha }}
+        timeout: 1200
         env_vars: |
           MONGODB_URL=${{ secrets.MONGODB_URL }}
           DATABASE_NAME=${{ secrets.DATABASE_NAME }}
@@ -64,6 +65,7 @@ jobs:
           --cpu=1
           --max-instances=10
           --min-instances=0
+          --timeout=300
     
     - name: Show output
       run: echo ${{ steps.deploy.outputs.url }}
