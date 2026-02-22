@@ -147,3 +147,22 @@ class APIKeyInfo(BaseModel):
     is_admin: bool = Field(default=False, description="Whether this is an admin key")
     created_at: datetime
     last_used: Optional[datetime] = None
+
+
+# Email Newsletter models
+class NewsletterEmailBase(BaseModel):
+    email: str = Field(..., regex=r'^[^@]+@[^@]+\.[^@]+$', description="Valid email address")
+
+
+class NewsletterEmailCreate(NewsletterEmailBase):
+    pass
+
+
+class NewsletterEmailResponse(NewsletterEmailBase):
+    id: Optional[str] = Field(alias="_id", default=None)
+    subscribed_at: datetime = Field(default_factory=datetime.utcnow)
+
+    model_config = {
+        "populate_by_name": True,
+        "json_encoders": {ObjectId: str},
+    }
