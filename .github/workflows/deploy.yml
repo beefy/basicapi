@@ -58,6 +58,9 @@ jobs:
           ALLOWED_USER_1=${{ secrets.ALLOWED_USER_1 }}
           ALLOWED_USER_2=${{ secrets.ALLOWED_USER_2 }}
           ALLOWED_USER_3=${{ secrets.ALLOWED_USER_3 }}
+          WALLET1=${{ secrets.WALLET1 }}
+          WALLET2=${{ secrets.WALLET2 }}
+          WALLET3=${{ secrets.WALLET3 }}
         flags: |
           --allow-unauthenticated
           --port=8000
