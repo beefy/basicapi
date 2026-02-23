@@ -158,9 +158,12 @@ def get_wallet_addresses() -> List[str]:
 def parse_transaction_details(tx_sig: str, wallet_address: str, client: Client) -> dict:
     """Parse transaction details to extract SOL changes, token changes, and program used"""
     try:
+        # Add delay before transaction fetch to avoid rate limits
+        time.sleep(0.3)
         tx = client.get_transaction(tx_sig, max_supported_transaction_version=0)
         
         if not tx.value:
+            print(f"No transaction data found for {tx_sig}")
             return {}
             
         meta = tx.value.transaction.meta
@@ -273,11 +276,11 @@ def parse_transaction_details(tx_sig: str, wallet_address: str, client: Client) 
         return {}
 
 
-def get_recent_transactions(wallet_address: str, limit: int = 5) -> List[TransactionInfo]:
+def get_recent_transactions(wallet_address: str, limit: int = 2) -> List[TransactionInfo]:
     """Get recent transactions for a wallet address"""
     try:
         # Add delay before Solana RPC call
-        time.sleep(1)
+        time.sleep(0.3)
         client = Client("https://api.mainnet-beta.solana.com")
         pubkey = Pubkey.from_string(wallet_address)
         
@@ -289,6 +292,9 @@ def get_recent_transactions(wallet_address: str, limit: int = 5) -> List[Transac
         
         transactions = []
         for sig in signatures.value:
+            # Add delay before parsing each transaction to avoid rate limits
+            time.sleep(0.3)
+            
             # Get detailed transaction info
             tx_details = parse_transaction_details(sig.signature, wallet_address, client)
             
