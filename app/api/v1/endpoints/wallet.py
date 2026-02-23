@@ -1,9 +1,12 @@
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict
-from datetime import datetime
+from typing import List, Dict, Optional
+from datetime import datetime, timedelta
 import os
 import requests
 import time
+import asyncio
+import logging
+import threading
 from solana.rpc.api import Client
 from solders.pubkey import Pubkey
 from solana.rpc.types import TokenAccountOpts
@@ -11,6 +14,15 @@ from solana.rpc.types import TokenAccountOpts
 from ....models.schemas import WalletBalanceResponse, WalletBalanceItem, TokenBalance, TransactionInfo, TokenChange
 
 router = APIRouter()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Global price cache with threading lock for safety
+GLOBAL_PRICE_CACHE = {}
+CACHE_EXPIRY_HOURS = 1
+CACHE_LOCK = threading.Lock()
 
 # Program ID labels for transaction parsing
 PROGRAM_LABELS = {
@@ -46,50 +58,137 @@ TOKEN_ADDRESSES = {
 ADDRESS_TO_SYMBOL = {addr: sym for sym, addr in TOKEN_ADDRESSES.items()}
 
 
+def get_cached_price(token_address: str) -> Optional[float]:
+    """Get cached price if it's still valid (within 1 hour)"""
+    with CACHE_LOCK:
+        if token_address in GLOBAL_PRICE_CACHE:
+            cached_data = GLOBAL_PRICE_CACHE[token_address]
+            cached_time = cached_data['timestamp']
+            cached_price = cached_data['price']
+            
+            # Check if cache is still valid (within 1 hour)
+            if datetime.now() - cached_time < timedelta(hours=CACHE_EXPIRY_HOURS):
+                logger.debug(f"Using cached price for {token_address}: ${cached_price}")
+                return cached_price
+            else:
+                # Cache expired, remove it
+                logger.debug(f"Cache expired for {token_address}, removing")
+                del GLOBAL_PRICE_CACHE[token_address]
+        
+        return None
+
+
+def cache_price(token_address: str, price: Optional[float]) -> None:
+    """Cache a price with current timestamp"""
+    with CACHE_LOCK:
+        GLOBAL_PRICE_CACHE[token_address] = {
+            'price': price,
+            'timestamp': datetime.now()
+        }
+        logger.debug(f"Cached price for {token_address}: ${price}")
+
+
+def get_cache_stats() -> Dict:
+    """Get cache statistics for monitoring"""
+    with CACHE_LOCK:
+        total_entries = len(GLOBAL_PRICE_CACHE)
+        valid_entries = 0
+        expired_entries = 0
+        
+        cutoff_time = datetime.now() - timedelta(hours=CACHE_EXPIRY_HOURS)
+        
+        for token_address, cached_data in GLOBAL_PRICE_CACHE.items():
+            if cached_data['timestamp'] > cutoff_time:
+                valid_entries += 1
+            else:
+                expired_entries += 1
+        
+        return {
+            'total_entries': total_entries,
+            'valid_entries': valid_entries, 
+            'expired_entries': expired_entries,
+            'cache_expiry_hours': CACHE_EXPIRY_HOURS
+        }
+
+
+def cleanup_expired_cache() -> int:
+    """Remove expired entries from cache and return number of entries removed"""
+    with CACHE_LOCK:
+        cutoff_time = datetime.now() - timedelta(hours=CACHE_EXPIRY_HOURS)
+        expired_keys = []
+        
+        for token_address, cached_data in GLOBAL_PRICE_CACHE.items():
+            if cached_data['timestamp'] <= cutoff_time:
+                expired_keys.append(token_address)
+        
+        for key in expired_keys:
+            del GLOBAL_PRICE_CACHE[key]
+        
+        if expired_keys:
+            logger.info(f"Cleaned up {len(expired_keys)} expired cache entries")
+        
+        return len(expired_keys)
+
+
 class BirdeyeDataFetcher:
     def __init__(self):
         self.api_key = os.getenv("BIRDEYE_API_KEY")
+        if not self.api_key:
+            logger.warning("BIRDEYE_API_KEY not found in environment variables")
         self.base_url = "https://public-api.birdeye.so"
         self.headers = {"X-API-KEY": self.api_key}
-        self._price_cache = {}  # Cache for prices within a single request
-    
-    def clear_cache(self):
-        """Clear the price cache at the start of each request"""
-        self._price_cache = {}
-    
-    def get_current_price(self, token_address: str) -> float:
-        """Get current price in USD for a token (with caching)"""
-        # Check cache first
-        if token_address in self._price_cache:
-            return self._price_cache[token_address]
-        url = f"{self.base_url}/defi/price"
+        # Remove the instance cache since we're using global cache now
         
+    def get_cache_stats(self):
+        """Get cache statistics"""
+        return get_cache_stats()
+    
+    def get_current_price(self, token_address: str) -> Optional[float]:
+        """Get current price in USD for a token (with global caching)"""
+        # Check global cache first
+        cached_price = get_cached_price(token_address)
+        if cached_price is not None:
+            return cached_price
+            
+        if not self.api_key:
+            logger.warning(f"No API key available for price fetching of {token_address}")
+            cache_price(token_address, None)
+            return None
+            
+        url = f"{self.base_url}/defi/price"
         params = {"address": token_address}
         
         try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+            logger.debug(f"Fetching fresh price for {token_address}")
+            response = requests.get(url, headers=self.headers, params=params, timeout=5)
             
             if response.status_code != 200:
-                print(f"API request failed for {token_address} with status {response.status_code}")
+                logger.warning(f"Birdeye API request failed for {token_address} with status {response.status_code}")
+                cache_price(token_address, None)
                 return None
                 
             data = response.json()
             
-            # Wait to avoid rate limiting
-            time.sleep(1)
+            # Reduced wait time to avoid rate limiting
+            time.sleep(0.5)
             
             if 'data' in data and 'value' in data['data']:
                 price = float(data['data']['value'])
-                self._price_cache[token_address] = price  # Cache the result
+                cache_price(token_address, price)  # Cache the result globally
+                logger.info(f"Fetched and cached price for {ADDRESS_TO_SYMBOL.get(token_address, token_address[:8]+'...')}: ${price:.4f}")
                 return price
             else:
-                print(f"Unable to fetch price data for token {token_address}")
-                self._price_cache[token_address] = None  # Cache None result
+                logger.warning(f"Unable to fetch price data for token {token_address}")
+                cache_price(token_address, None)  # Cache None result
                 return None
                 
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching price for {token_address}")
+            cache_price(token_address, None)
+            return None
         except Exception as e:
-            print(f"Error fetching price for {token_address}: {str(e)}")
-            self._price_cache[token_address] = None  # Cache None result
+            logger.error(f"Error fetching price for {token_address}: {str(e)}")
+            cache_price(token_address, None)
             return None
 
 
@@ -98,10 +197,17 @@ def get_sol_balance(wallet_address: str) -> float:
     try:
         client = Client("https://api.mainnet-beta.solana.com")
         response = client.get_balance(Pubkey.from_string(wallet_address))
-        lamports = response.value
-        sol_balance = lamports / 1_000_000_000
-        return sol_balance
+        
+        if hasattr(response, 'value'):
+            lamports = response.value
+            sol_balance = lamports / 1_000_000_000
+            return sol_balance
+        else:
+            logger.error(f"Invalid response from Solana RPC for wallet {wallet_address[:8]}...")
+            raise HTTPException(status_code=400, detail="Invalid response from Solana RPC")
+            
     except Exception as e:
+        logger.error(f"Error fetching SOL balance for {wallet_address[:8]}...: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Error fetching SOL balance: {str(e)}")
 
 
@@ -109,8 +215,6 @@ def get_crypto_balances(wallet_address: str) -> dict:
     """Get all crypto token balances for a given wallet address"""
     try:
         ret = {}
-        # Add delay before Solana RPC call
-        time.sleep(1)
         client = Client("https://api.mainnet-beta.solana.com")
 
         # Add SOL balance
@@ -141,29 +245,36 @@ def get_crypto_balances(wallet_address: str) -> dict:
 def get_wallet_addresses() -> List[str]:
     """Get the 3 wallet addresses from environment variables"""
     wallets = []
+    missing_wallets = []
+    
     for i in range(1, 4):
         wallet = os.getenv(f"WALLET{i}")
-        if wallet:
-            wallets.append(wallet)
+        if wallet and wallet.strip():
+            wallets.append(wallet.strip())
+        else:
+            missing_wallets.append(f"WALLET{i}")
+    
+    if missing_wallets:
+        logger.warning(f"Missing wallet environment variables: {', '.join(missing_wallets)}")
     
     if not wallets:
-        raise HTTPException(
-            status_code=500,
-            detail="No wallet addresses found in environment variables (WALLET1, WALLET2, WALLET3)"
-        )
+        error_msg = f"No wallet addresses found in environment variables ({', '.join(missing_wallets)})"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
     
+    logger.info(f"Found {len(wallets)} wallet addresses")
     return wallets
 
 
 def parse_transaction_details(tx_sig: str, wallet_address: str, client: Client) -> dict:
     """Parse transaction details to extract SOL changes, token changes, and program used"""
     try:
-        # Add delay before transaction fetch to avoid rate limits
-        time.sleep(0.3)
+        # Reduced delay to improve performance
+        time.sleep(0.1)
         tx = client.get_transaction(tx_sig, max_supported_transaction_version=0)
         
         if not tx.value:
-            print(f"No transaction data found for {tx_sig}")
+            logger.warning(f"No transaction data found for {tx_sig[:8]}...")
             return {}
             
         meta = tx.value.transaction.meta
@@ -272,15 +383,15 @@ def parse_transaction_details(tx_sig: str, wallet_address: str, client: Client) 
         return result
         
     except Exception as e:
-        print(f"Error parsing transaction {tx_sig}: {str(e)}")
+        logger.error(f"Error parsing transaction {tx_sig}: {str(e)}")
         return {}
 
 
 def get_recent_transactions(wallet_address: str, limit: int = 2) -> List[TransactionInfo]:
     """Get recent transactions for a wallet address"""
     try:
-        # Add delay before Solana RPC call
-        time.sleep(0.3)
+        # Reduced delay to improve performance
+        time.sleep(0.1)
         client = Client("https://api.mainnet-beta.solana.com")
         pubkey = Pubkey.from_string(wallet_address)
         
@@ -292,8 +403,8 @@ def get_recent_transactions(wallet_address: str, limit: int = 2) -> List[Transac
         
         transactions = []
         for sig in signatures.value:
-            # Add delay before parsing each transaction to avoid rate limits
-            time.sleep(0.3)
+            # Reduced delay to improve performance
+            time.sleep(0.1)
             
             # Get detailed transaction info
             tx_details = parse_transaction_details(sig.signature, wallet_address, client)
@@ -318,7 +429,7 @@ def get_recent_transactions(wallet_address: str, limit: int = 2) -> List[Transac
         return transactions
         
     except Exception as e:
-        print(f"Error fetching transactions for wallet {wallet_address}: {str(e)}")
+        logger.error(f"Error fetching transactions for wallet {wallet_address}: {str(e)}")
         return []
 
 
@@ -357,33 +468,104 @@ def get_crypto_balances_with_value(wallet_address: str, fetcher: BirdeyeDataFetc
 @router.get("/balances", response_model=WalletBalanceResponse)
 async def get_all_wallet_balances():
     """Get all crypto token balances with USD pricing for the 3 configured wallets"""
-    wallet_addresses = get_wallet_addresses()
+    logger.info("Starting wallet balance fetch")
     
-    # Create a single fetcher instance and clear cache for this request
+    try:
+        wallet_addresses = get_wallet_addresses()
+    except HTTPException:
+        # Re-raise HTTPExceptions (like missing environment variables)
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error getting wallet addresses: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to load wallet configuration")
+    
+    # Create a single fetcher instance (using global cache now)
     fetcher = BirdeyeDataFetcher()
-    fetcher.clear_cache()
+    
+    # Log cache statistics
+    cache_stats = fetcher.get_cache_stats()
+    logger.info(f"Price cache stats: {cache_stats['valid_entries']} valid, {cache_stats['expired_entries']} expired out of {cache_stats['total_entries']} total entries")
     
     wallet_items = []
+    errors = []
+    
     for address in wallet_addresses:
         try:
+            logger.info(f"Processing wallet: {address[:8]}...{address[-8:]}")
             balances, total_value, transactions = get_crypto_balances_with_value(address, fetcher)
-            print(balances, total_value, transactions)
+            
             wallet_items.append(WalletBalanceItem(
                 wallet_address=address,
                 balances=balances,
                 total_usd_value=total_value,
                 recent_transactions=transactions
             ))
-            # Add a delay between wallets to prevent rate limiting
-            time.sleep(2)
+            
+            logger.info(f"Successfully processed wallet {address[:8]}...{address[-8:]} with total value: ${total_value:.2f}")
+            
+            # Reduced delay between wallets
+            if address != wallet_addresses[-1]:  # Don't sleep after the last wallet
+                time.sleep(1)
+                
+        except HTTPException as e:
+            # Re-raise HTTPExceptions immediately
+            logger.error(f"HTTP error processing wallet {address[:8]}...{address[-8:]}: {e.detail}")
+            errors.append(f"Wallet {address[:8]}...{address[-8:]}: {e.detail}")
+            
         except Exception as e:
             # Log error but continue with other wallets
-            print(f"Error fetching balances for wallet {address}: {str(e)}")
-            print(f"Exception type: {type(e).__name__}")
-            import traceback
-            traceback.print_exc()
+            error_msg = f"Error processing wallet {address[:8]}...{address[-8:]}: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            errors.append(error_msg)
+    
+    # If no wallets were successfully processed, return an error
+    if not wallet_items:
+        if errors:
+            error_detail = f"Failed to process any wallets. Errors: {'; '.join(errors)}"
+        else:
+            error_detail = "Failed to process any wallets due to unknown errors"
+        
+        logger.error(error_detail)
+        raise HTTPException(status_code=500, detail=error_detail)
+    
+    # Log warnings if some wallets failed but others succeeded
+    if errors:
+        logger.warning(f"Some wallets failed to process: {'; '.join(errors)}")
+    
+    logger.info(f"Successfully processed {len(wallet_items)} out of {len(wallet_addresses)} wallets")
+    
+    # Log final cache statistics
+    final_cache_stats = fetcher.get_cache_stats()
+    logger.info(f"Final cache stats: {final_cache_stats['valid_entries']} cached prices available for future requests")
     
     return WalletBalanceResponse(
         wallets=wallet_items,
         timestamp=datetime.utcnow()
     )
+
+
+@router.get("/cache-stats")
+async def get_price_cache_stats():
+    """Get statistics about the global price cache"""
+    # Clean up expired entries first
+    cleanup_expired_cache()
+    
+    stats = get_cache_stats()
+    
+    # Add some additional info
+    with CACHE_LOCK:
+        cached_tokens = []
+        for token_address, cached_data in GLOBAL_PRICE_CACHE.items():
+            symbol = ADDRESS_TO_SYMBOL.get(token_address, token_address[:8] + '...')
+            age_minutes = int((datetime.now() - cached_data['timestamp']).total_seconds() / 60)
+            cached_tokens.append({
+                'symbol': symbol,
+                'price': cached_data['price'],
+                'age_minutes': age_minutes
+            })
+    
+    return {
+        **stats,
+        'cached_tokens': cached_tokens,
+        'timestamp': datetime.utcnow()
+    }
