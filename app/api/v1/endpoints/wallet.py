@@ -8,9 +8,19 @@ from solana.rpc.api import Client
 from solders.pubkey import Pubkey
 from solana.rpc.types import TokenAccountOpts
 
-from ....models.schemas import WalletBalanceResponse, WalletBalanceItem, TokenBalance, TransactionInfo
+from ....models.schemas import WalletBalanceResponse, WalletBalanceItem, TokenBalance, TransactionInfo, TokenChange
 
 router = APIRouter()
+
+# Program ID labels for transaction parsing
+PROGRAM_LABELS = {
+    "11111111111111111111111111111111": "System Program",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA": "SPL Token",
+    "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN": "Jupiter",
+    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8": "Raydium",
+    "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM": "Orca",
+    "PhoeNiX1VVeaZrJhLuK2UShigkCwt33AjAk4N6YiWPt": "Phoenix",
+}
 
 # Token addresses mapping
 TOKEN_ADDRESSES = {
@@ -145,6 +155,124 @@ def get_wallet_addresses() -> List[str]:
     return wallets
 
 
+def parse_transaction_details(tx_sig: str, wallet_address: str, client: Client) -> dict:
+    """Parse transaction details to extract SOL changes, token changes, and program used"""
+    try:
+        tx = client.get_transaction(tx_sig, max_supported_transaction_version=0)
+        
+        if not tx.value:
+            return {}
+            
+        meta = tx.value.transaction.meta
+        message = tx.value.transaction.transaction.message
+        
+        account_keys = message.account_keys
+        pre = meta.pre_balances
+        post = meta.post_balances
+        
+        # Find wallet index
+        wallet_index = None
+        for i, key in enumerate(account_keys):
+            if str(key) == wallet_address:
+                wallet_index = i
+                break
+        
+        result = {
+            'sol_change': None,
+            'sol_direction': 'none',
+            'token_changes': [],
+            'program_used': None,
+            'transaction_type': 'other'
+        }
+        
+        # 1. Detect SOL transfers
+        if wallet_index is not None:
+            sol_change = (post[wallet_index] - pre[wallet_index]) / 1e9
+            if abs(sol_change) > 0.0001:  # Ignore tiny fee-level changes
+                result['sol_change'] = round(sol_change, 6)
+                result['sol_direction'] = 'received' if sol_change > 0 else 'sent'
+        
+        # 2. Detect token changes
+        pre_tokens = meta.pre_token_balances or []
+        post_tokens = meta.post_token_balances or []
+        
+        # Track all tokens that changed for this wallet
+        processed_mints = set()
+        
+        for pre_token in pre_tokens:
+            if str(pre_token.owner) == wallet_address:
+                mint = str(pre_token.mint)
+                if mint in processed_mints:
+                    continue
+                processed_mints.add(mint)
+                
+                pre_amt = int(pre_token.ui_token_amount.amount)
+                
+                post_match = next(
+                    (p for p in post_tokens if str(p.mint) == mint and str(p.owner) == wallet_address),
+                    None
+                )
+                
+                post_amt = int(post_match.ui_token_amount.amount) if post_match else 0
+                decimals = pre_token.ui_token_amount.decimals
+                change = (post_amt - pre_amt) / (10 ** decimals)
+                
+                if abs(change) > 0:
+                    symbol = ADDRESS_TO_SYMBOL.get(mint, mint[:8] + '...')
+                    result['token_changes'].append({
+                        'mint': mint,
+                        'symbol': symbol,
+                        'change': round(change, 6),
+                        'direction': 'received' if change > 0 else 'sent'
+                    })
+        
+        # Check for new tokens (in post but not in pre)
+        for post_token in post_tokens:
+            if str(post_token.owner) == wallet_address:
+                mint = str(post_token.mint)
+                if mint in processed_mints:
+                    continue
+                
+                pre_match = next(
+                    (p for p in pre_tokens if str(p.mint) == mint and str(p.owner) == wallet_address),
+                    None
+                )
+                
+                if not pre_match:
+                    post_amt = int(post_token.ui_token_amount.amount)
+                    decimals = post_token.ui_token_amount.decimals
+                    change = post_amt / (10 ** decimals)
+                    
+                    if abs(change) > 0:
+                        symbol = ADDRESS_TO_SYMBOL.get(mint, mint[:8] + '...')
+                        result['token_changes'].append({
+                            'mint': mint,
+                            'symbol': symbol,
+                            'change': round(change, 6),
+                            'direction': 'received'
+                        })
+        
+        # 3. Detect program used
+        instructions = message.instructions
+        for ix in instructions:
+            program_id = str(account_keys[ix.program_id_index])
+            if program_id in PROGRAM_LABELS:
+                result['program_used'] = PROGRAM_LABELS[program_id]
+                
+                # Determine transaction type
+                if 'Jupiter' in result['program_used'] or 'Raydium' in result['program_used'] or 'Orca' in result['program_used']:
+                    result['transaction_type'] = 'swap'
+                elif 'System Program' in result['program_used'] or 'SPL Token' in result['program_used']:
+                    result['transaction_type'] = 'transfer'
+                break
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error parsing transaction {tx_sig}: {str(e)}")
+        return {}
+
+
 def get_recent_transactions(wallet_address: str, limit: int = 5) -> List[TransactionInfo]:
     """Get recent transactions for a wallet address"""
     try:
@@ -161,11 +289,24 @@ def get_recent_transactions(wallet_address: str, limit: int = 5) -> List[Transac
         
         transactions = []
         for sig in signatures.value:
+            # Get detailed transaction info
+            tx_details = parse_transaction_details(sig.signature, wallet_address, client)
+            
+            # Convert token_changes to TokenChange objects
+            token_changes = [
+                TokenChange(**change) for change in tx_details.get('token_changes', [])
+            ]
+            
             transactions.append(TransactionInfo(
                 signature=str(sig.signature),
                 block_time=sig.block_time,
                 slot=sig.slot,
-                confirmation_status=str(sig.confirmation_status)
+                confirmation_status=str(sig.confirmation_status),
+                sol_change=tx_details.get('sol_change'),
+                sol_direction=tx_details.get('sol_direction'),
+                token_changes=token_changes,
+                program_used=tx_details.get('program_used'),
+                transaction_type=tx_details.get('transaction_type')
             ))
         
         return transactions

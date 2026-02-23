@@ -54,11 +54,23 @@ class TokenBalance(BaseModel):
     usd_value: Optional[float] = None
 
 
+class TokenChange(BaseModel):
+    mint: str
+    symbol: Optional[str] = None
+    change: float
+    direction: str  # 'sent' or 'received'
+
+
 class TransactionInfo(BaseModel):
     signature: str
     block_time: Optional[int] = None
     slot: Optional[int] = None
     confirmation_status: Optional[str] = None
+    sol_change: Optional[float] = None
+    sol_direction: Optional[str] = None  # 'sent', 'received', or 'none'
+    token_changes: List[TokenChange] = []
+    program_used: Optional[str] = None
+    transaction_type: Optional[str] = None  # 'transfer', 'swap', 'other'
 
 
 class WalletBalanceItem(BaseModel):
