@@ -57,6 +57,32 @@ TOKEN_ADDRESSES = {
 # Reverse mapping for easy lookup
 ADDRESS_TO_SYMBOL = {addr: sym for sym, addr in TOKEN_ADDRESSES.items()}
 
+# Solana RPC endpoint
+SOLANA_RPC_URL = "https://api.mainnet-beta.solana.com"
+
+
+def create_solana_client() -> Client:
+    """Create a Solana client with proper error handling for production environments"""
+    try:
+        # Try creating client without any additional parameters first
+        return Client(SOLANA_RPC_URL)
+    except TypeError as e:
+        if "proxy" in str(e):
+            logger.warning(f"Solana Client proxy parameter issue: {str(e)}. Trying alternative initialization.")
+            # If proxy parameter is the issue, try with explicit commitment level only
+            from solana.rpc.commitment import Commitment
+            try:
+                return Client(SOLANA_RPC_URL, commitment=Commitment("confirmed"))
+            except Exception:
+                # Fallback to basic client
+                return Client(SOLANA_RPC_URL)
+        else:
+            logger.error(f"Unexpected Solana Client initialization error: {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Failed to create Solana client: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize Solana client: {str(e)}")
+
 
 def get_cached_price(token_address: str) -> Optional[float]:
     """Get cached price if it's still valid (within 1 hour)"""
@@ -195,7 +221,7 @@ class BirdeyeDataFetcher:
 def get_sol_balance(wallet_address: str) -> float:
     """Get SOL balance for a given wallet address"""
     try:
-        client = Client("https://api.mainnet-beta.solana.com")
+        client = create_solana_client()
         response = client.get_balance(Pubkey.from_string(wallet_address))
         
         if hasattr(response, 'value'):
@@ -392,7 +418,7 @@ def get_recent_transactions(wallet_address: str, limit: int = 2) -> List[Transac
     try:
         # Reduced delay to improve performance
         time.sleep(0.1)
-        client = Client("https://api.mainnet-beta.solana.com")
+        client = create_solana_client()
         pubkey = Pubkey.from_string(wallet_address)
         
         # Get recent signatures
