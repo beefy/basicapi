@@ -240,6 +240,7 @@ def get_sol_balance(wallet_address: str) -> float:
 def get_crypto_balances(wallet_address: str) -> dict:
     """Get all crypto token balances for a given wallet address"""
     try:
+        time.sleep(1)
         ret = {}
         client = Client("https://api.mainnet-beta.solana.com")
 
