@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 from bson import ObjectId
 
 
@@ -46,6 +46,26 @@ class ResponseTimeStats(BaseModel):
     agent_name: str
     average_response_time_ms: float
     count: int
+
+
+class WalletBalanceItem(BaseModel):
+    wallet_address: str
+    balances: Dict[str, float]
+
+
+class WalletBalanceResponse(BaseModel):
+    wallets: List[WalletBalanceItem]
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SolBalanceItem(BaseModel):
+    wallet_address: str
+    sol_balance: float
+
+
+class SolBalanceResponse(BaseModel):
+    wallets: List[SolBalanceItem]
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
 class SystemInfoBase(BaseModel):

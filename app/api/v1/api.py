@@ -5,7 +5,8 @@ from .endpoints import (
     system_info,
     response_times,
     heartbeat,
-    newsletter
+    newsletter,
+    wallet
 )
 
 api_router = APIRouter()
@@ -15,3 +16,4 @@ api_router.include_router(system_info.router, prefix="/system-info", tags=["syst
 api_router.include_router(response_times.router, prefix="/response-times", tags=["response-times"])
 api_router.include_router(heartbeat.router, prefix="/heartbeat", tags=["heartbeat"])
 api_router.include_router(newsletter.router, prefix="/newsletter", tags=["newsletter"])
+api_router.include_router(wallet.router, prefix="/wallet", tags=["wallet"])
