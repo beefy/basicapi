@@ -41,9 +41,17 @@ class BirdeyeDataFetcher:
         self.api_key = os.getenv("BIRDEYE_API_KEY")
         self.base_url = "https://public-api.birdeye.so"
         self.headers = {"X-API-KEY": self.api_key}
+        self._price_cache = {}  # Cache for prices within a single request
+    
+    def clear_cache(self):
+        """Clear the price cache at the start of each request"""
+        self._price_cache = {}
     
     def get_current_price(self, token_address: str) -> float:
-        """Get current price in USD for a token"""
+        """Get current price in USD for a token (with caching)"""
+        # Check cache first
+        if token_address in self._price_cache:
+            return self._price_cache[token_address]
         url = f"{self.base_url}/defi/price"
         
         params = {"address": token_address}
@@ -61,13 +69,17 @@ class BirdeyeDataFetcher:
             time.sleep(1)
             
             if 'data' in data and 'value' in data['data']:
-                return float(data['data']['value'])
+                price = float(data['data']['value'])
+                self._price_cache[token_address] = price  # Cache the result
+                return price
             else:
                 print(f"Unable to fetch price data for token {token_address}")
+                self._price_cache[token_address] = None  # Cache None result
                 return None
                 
         except Exception as e:
             print(f"Error fetching price for {token_address}: {str(e)}")
+            self._price_cache[token_address] = None  # Cache None result
             return None
 
 
@@ -163,9 +175,10 @@ def get_recent_transactions(wallet_address: str, limit: int = 5) -> List[Transac
         return []
 
 
-def get_crypto_balances_with_value(wallet_address: str) -> tuple[Dict[str, TokenBalance], float, List[TransactionInfo]]:
+def get_crypto_balances_with_value(wallet_address: str, fetcher: BirdeyeDataFetcher = None) -> tuple[Dict[str, TokenBalance], float, List[TransactionInfo]]:
     """Get crypto balances with USD pricing"""
-    fetcher = BirdeyeDataFetcher()
+    if fetcher is None:
+        fetcher = BirdeyeDataFetcher()
     balances = get_crypto_balances(wallet_address)
     ret = {}
     
@@ -199,10 +212,14 @@ async def get_all_wallet_balances():
     """Get all crypto token balances with USD pricing for the 3 configured wallets"""
     wallet_addresses = get_wallet_addresses()
     
+    # Create a single fetcher instance and clear cache for this request
+    fetcher = BirdeyeDataFetcher()
+    fetcher.clear_cache()
+    
     wallet_items = []
     for address in wallet_addresses:
         try:
-            balances, total_value, transactions = get_crypto_balances_with_value(address)
+            balances, total_value, transactions = get_crypto_balances_with_value(address, fetcher)
             print(balances, total_value, transactions)
             wallet_items.append(WalletBalanceItem(
                 wallet_address=address,
