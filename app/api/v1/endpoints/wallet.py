@@ -84,6 +84,30 @@ def create_solana_client() -> Client:
         raise HTTPException(status_code=500, detail=f"Failed to initialize Solana client: {str(e)}")
 
 
+def handle_rpc_request(func, *args, max_retries=3, **kwargs):
+    """Handle RPC requests with exponential backoff for rate limiting"""
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "429" in error_msg or "too many requests" in error_msg or "rate limit" in error_msg:
+                if attempt < max_retries - 1:
+                    delay = (2 ** attempt) + 1  # Exponential backoff: 2, 5, 9 seconds
+                    logger.warning(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), waiting {delay} seconds...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    logger.error(f"Rate limit exceeded after {max_retries} attempts")
+                    raise HTTPException(status_code=429, detail="Solana RPC rate limit exceeded")
+            else:
+                # For non-rate-limit errors, raise immediately
+                raise
+    
+    # This shouldn't be reached, but just in case
+    raise HTTPException(status_code=500, detail="Unexpected error in RPC handling")
+
+
 def get_cached_price(token_address: str) -> Optional[float]:
     """Get cached price if it's still valid (within 1 hour)"""
     with CACHE_LOCK:
@@ -222,7 +246,12 @@ def get_sol_balance(wallet_address: str) -> float:
     """Get SOL balance for a given wallet address"""
     try:
         client = create_solana_client()
-        response = client.get_balance(Pubkey.from_string(wallet_address))
+        time.sleep(1.5)  # Increased delay to avoid rate limiting
+        
+        response = handle_rpc_request(
+            client.get_balance, 
+            Pubkey.from_string(wallet_address)
+        )
         
         if hasattr(response, 'value'):
             lamports = response.value
@@ -240,32 +269,65 @@ def get_sol_balance(wallet_address: str) -> float:
 def get_crypto_balances(wallet_address: str) -> dict:
     """Get all crypto token balances for a given wallet address"""
     try:
-        time.sleep(1)
         ret = {}
-        client = Client("https://api.mainnet-beta.solana.com")
+        # Increased delay before Solana RPC call to prevent rate limiting
+        time.sleep(2)
+        client = create_solana_client()
 
-        # Add SOL balance
-        ret["So11111111111111111111111111111111111111112"] = get_sol_balance(wallet_address)
+        # Add SOL balance with improved error handling
+        try:
+            sol_balance = get_sol_balance(wallet_address)
+            ret["So11111111111111111111111111111111111111112"] = sol_balance
+        except HTTPException as e:
+            if "rate limit" in str(e.detail).lower() or "429" in str(e.detail):
+                # For rate limits, re-raise to trigger wallet-level retry
+                raise
+            else:
+                logger.error(f"Failed to get SOL balance for {wallet_address[:8]}...: {e.detail}")
+                # Set SOL balance to 0 if it fails, but continue with token balances
+                ret["So11111111111111111111111111111111111111112"] = 0.0
 
-        # Get token accounts
-        response = client.get_token_accounts_by_owner_json_parsed(
-            Pubkey.from_string(wallet_address),
-            TokenAccountOpts(program_id=Pubkey.from_string(
-                "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"  # SPL Token Program
-            ))
-        )
+        # Get token accounts with rate limit handling
+        try:
+            time.sleep(1.5)  # Additional delay before token account fetch
+            response = handle_rpc_request(
+                client.get_token_accounts_by_owner_json_parsed,
+                Pubkey.from_string(wallet_address),
+                TokenAccountOpts(program_id=Pubkey.from_string(
+                    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"  # SPL Token Program
+                ))
+            )
 
-        for account in response.value:
-            data = account.account.data.parsed["info"]
-            mint = data["mint"]
-            amount = int(data["tokenAmount"]["amount"])
-            decimals = int(data["tokenAmount"]["decimals"])
+            if hasattr(response, 'value') and response.value:
+                for account in response.value:
+                    try:
+                        data = account.account.data.parsed["info"]
+                        mint = data["mint"]
+                        amount = int(data["tokenAmount"]["amount"])
+                        decimals = int(data["tokenAmount"]["decimals"])
 
-            ui_amount = amount / (10 ** decimals)
-            ret[mint] = ui_amount
+                        ui_amount = amount / (10 ** decimals)
+                        ret[mint] = ui_amount
+                    except (KeyError, ValueError, TypeError) as e:
+                        logger.warning(f"Error parsing token account data for {wallet_address[:8]}...: {str(e)}")
+                        continue
+            else:
+                logger.warning(f"No token accounts found for wallet {wallet_address[:8]}...")
+
+        except HTTPException:
+            # Re-raise HTTPExceptions (like rate limits) to trigger wallet-level retry
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching token accounts for {wallet_address[:8]}...: {str(e)}")
+            # Continue with just SOL balance if token fetching fails
 
         return ret
+        
+    except HTTPException:
+        # Re-raise HTTPExceptions to preserve error details
+        raise
     except Exception as e:
+        logger.error(f"Error fetching crypto balances for {wallet_address[:8]}...: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Error fetching crypto balances: {str(e)}")
 
 
@@ -296,9 +358,14 @@ def get_wallet_addresses() -> List[str]:
 def parse_transaction_details(tx_sig: str, wallet_address: str, client: Client) -> dict:
     """Parse transaction details to extract SOL changes, token changes, and program used"""
     try:
-        # Reduced delay to improve performance
-        time.sleep(0.1)
-        tx = client.get_transaction(tx_sig, max_supported_transaction_version=0)
+        # Increased delay to prevent rate limiting
+        time.sleep(0.5)
+        
+        tx = handle_rpc_request(
+            client.get_transaction, 
+            tx_sig, 
+            max_supported_transaction_version=0
+        )
         
         if not tx.value:
             logger.warning(f"No transaction data found for {tx_sig[:8]}...")
@@ -417,23 +484,24 @@ def parse_transaction_details(tx_sig: str, wallet_address: str, client: Client) 
 def get_recent_transactions(wallet_address: str, limit: int = 2) -> List[TransactionInfo]:
     """Get recent transactions for a wallet address"""
     try:
-        # Reduced delay to improve performance
-        time.sleep(0.1)
+        # Increased delay to improve performance and avoid rate limits
+        time.sleep(1.5)
         client = create_solana_client()
         pubkey = Pubkey.from_string(wallet_address)
         
-        # Get recent signatures
-        signatures = client.get_signatures_for_address(
+        # Get recent signatures with rate limit handling
+        signatures = handle_rpc_request(
+            client.get_signatures_for_address,
             pubkey,
             limit=limit
         )
         
         transactions = []
         for sig in signatures.value:
-            # Reduced delay to improve performance
-            time.sleep(0.1)
+            # Increased delay to improve performance and avoid rate limits
+            time.sleep(0.5)
             
-            # Get detailed transaction info
+            # Get detailed transaction info with rate limit handling
             tx_details = parse_transaction_details(sig.signature, wallet_address, client)
             
             # Convert token_changes to TokenChange objects
@@ -530,9 +598,9 @@ async def get_all_wallet_balances():
             
             logger.info(f"Successfully processed wallet {address[:8]}...{address[-8:]} with total value: ${total_value:.2f}")
             
-            # Reduced delay between wallets
+            # Increased delay between wallets to prevent rate limiting
             if address != wallet_addresses[-1]:  # Don't sleep after the last wallet
-                time.sleep(1)
+                time.sleep(3)  # Increased from 1 second to 3 seconds
                 
         except HTTPException as e:
             # Re-raise HTTPExceptions immediately
