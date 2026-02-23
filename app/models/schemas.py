@@ -48,23 +48,20 @@ class ResponseTimeStats(BaseModel):
     count: int
 
 
+class TokenBalance(BaseModel):
+    balance: float
+    usd_price: Optional[float] = None
+    usd_value: Optional[float] = None
+
+
 class WalletBalanceItem(BaseModel):
     wallet_address: str
-    balances: Dict[str, float]
+    balances: Dict[str, TokenBalance]
+    total_usd_value: Optional[float] = None
 
 
 class WalletBalanceResponse(BaseModel):
     wallets: List[WalletBalanceItem]
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
-
-
-class SolBalanceItem(BaseModel):
-    wallet_address: str
-    sol_balance: float
-
-
-class SolBalanceResponse(BaseModel):
-    wallets: List[SolBalanceItem]
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 
