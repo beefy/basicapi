@@ -54,10 +54,18 @@ class TokenBalance(BaseModel):
     usd_value: Optional[float] = None
 
 
+class TransactionInfo(BaseModel):
+    signature: str
+    block_time: Optional[int] = None
+    slot: Optional[int] = None
+    confirmation_status: Optional[str] = None
+
+
 class WalletBalanceItem(BaseModel):
     wallet_address: str
     balances: Dict[str, TokenBalance]
     total_usd_value: Optional[float] = None
+    recent_transactions: List[TransactionInfo] = []
 
 
 class WalletBalanceResponse(BaseModel):

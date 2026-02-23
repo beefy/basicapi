@@ -8,7 +8,7 @@ from solana.rpc.api import Client
 from solders.pubkey import Pubkey
 from solana.rpc.types import TokenAccountOpts
 
-from ....models.schemas import WalletBalanceResponse, WalletBalanceItem, TokenBalance
+from ....models.schemas import WalletBalanceResponse, WalletBalanceItem, TokenBalance, TransactionInfo
 
 router = APIRouter()
 
@@ -58,7 +58,7 @@ class BirdeyeDataFetcher:
             data = response.json()
             
             # Wait to avoid rate limiting
-            time.sleep(0.5)
+            time.sleep(1)
             
             if 'data' in data and 'value' in data['data']:
                 return float(data['data']['value'])
@@ -87,6 +87,8 @@ def get_crypto_balances(wallet_address: str) -> dict:
     """Get all crypto token balances for a given wallet address"""
     try:
         ret = {}
+        # Add delay before Solana RPC call
+        time.sleep(1)
         client = Client("https://api.mainnet-beta.solana.com")
 
         # Add SOL balance
@@ -131,7 +133,37 @@ def get_wallet_addresses() -> List[str]:
     return wallets
 
 
-def get_crypto_balances_with_value(wallet_address: str) -> tuple[Dict[str, TokenBalance], float]:
+def get_recent_transactions(wallet_address: str, limit: int = 5) -> List[TransactionInfo]:
+    """Get recent transactions for a wallet address"""
+    try:
+        # Add delay before Solana RPC call
+        time.sleep(1)
+        client = Client("https://api.mainnet-beta.solana.com")
+        pubkey = Pubkey.from_string(wallet_address)
+        
+        # Get recent signatures
+        signatures = client.get_signatures_for_address(
+            pubkey,
+            limit=limit
+        )
+        
+        transactions = []
+        for sig in signatures.value:
+            transactions.append(TransactionInfo(
+                signature=str(sig.signature),
+                block_time=sig.block_time,
+                slot=sig.slot,
+                confirmation_status=str(sig.confirmation_status)
+            ))
+        
+        return transactions
+        
+    except Exception as e:
+        print(f"Error fetching transactions for wallet {wallet_address}: {str(e)}")
+        return []
+
+
+def get_crypto_balances_with_value(wallet_address: str) -> tuple[Dict[str, TokenBalance], float, List[TransactionInfo]]:
     """Get crypto balances with USD pricing"""
     fetcher = BirdeyeDataFetcher()
     balances = get_crypto_balances(wallet_address)
@@ -156,7 +188,10 @@ def get_crypto_balances_with_value(wallet_address: str) -> tuple[Dict[str, Token
         if token.usd_value is not None
     )
     
-    return ret, total_value
+    # Get recent transactions
+    recent_transactions = get_recent_transactions(wallet_address)
+    
+    return ret, total_value, recent_transactions
 
 
 @router.get("/balances", response_model=WalletBalanceResponse)
@@ -167,15 +202,22 @@ async def get_all_wallet_balances():
     wallet_items = []
     for address in wallet_addresses:
         try:
-            balances, total_value = get_crypto_balances_with_value(address)
+            balances, total_value, transactions = get_crypto_balances_with_value(address)
+            print(balances, total_value, transactions)
             wallet_items.append(WalletBalanceItem(
                 wallet_address=address,
                 balances=balances,
-                total_usd_value=total_value
+                total_usd_value=total_value,
+                recent_transactions=transactions
             ))
+            # Add a delay between wallets to prevent rate limiting
+            time.sleep(2)
         except Exception as e:
             # Log error but continue with other wallets
             print(f"Error fetching balances for wallet {address}: {str(e)}")
+            print(f"Exception type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
     
     return WalletBalanceResponse(
         wallets=wallet_items,
