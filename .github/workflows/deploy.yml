@@ -61,6 +61,7 @@ jobs:
           WALLET1=${{ secrets.WALLET1 }}
           WALLET2=${{ secrets.WALLET2 }}
           WALLET3=${{ secrets.WALLET3 }}
+          BIRDEYE_API_KEY=${{ secrets.BIRDEYE_API_KEY }}
         flags: |
           --allow-unauthenticated
           --port=8000
