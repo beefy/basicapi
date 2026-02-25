@@ -203,3 +203,38 @@ class NewsletterEmailResponse(NewsletterEmailBase):
         "populate_by_name": True,
         "json_encoders": {ObjectId: str},
     }
+
+
+# Technical Indicator models
+class TokenIndicators(BaseModel):
+    """Technical indicators for a single token"""
+    token_symbol: str
+    token_address: str
+    rsi: Optional[float] = Field(None, description="RSI (14-period)")
+    ma_cross: str = Field(description="Moving average cross signal: bull/bear/neutral")
+    ma20: Optional[float] = Field(None, description="20-period moving average")
+    ma50: Optional[float] = Field(None, description="50-period moving average")
+    volume_ratio: float = Field(description="Current volume vs 24h average ratio")
+    adx: Optional[float] = Field(None, description="Average Directional Index (14-period)")
+    macd: str = Field(description="MACD signal: bull/bear/neutral")
+    macd_value: Optional[float] = Field(None, description="MACD line value")
+    macd_signal_value: Optional[float] = Field(None, description="MACD signal line value")
+    macd_histogram: Optional[float] = Field(None, description="MACD histogram value")
+    stochastic_k: Optional[float] = Field(None, description="Stochastic %K")
+    stochastic_d: Optional[float] = Field(None, description="Stochastic %D")
+    stochastic_signal: str = Field(description="Stochastic signal: bull/bear/neutral")
+    current_price: float = Field(description="Current token price in USD")
+    volume_24h: float = Field(description="24-hour trading volume")
+    data_points: Optional[int] = Field(None, description="Number of data points used")
+    data_start: Optional[str] = Field(None, description="Start of data range (ISO format)")
+    data_end: Optional[str] = Field(None, description="End of data range (ISO format)")
+    timestamp: str = Field(description="When indicators were calculated (ISO format)")
+
+
+class IndicatorsResponse(BaseModel):
+    """Response containing indicators for all tokens"""
+    indicators: Dict[str, Optional[TokenIndicators]] = Field(description="Indicators by token symbol")
+    summary: Dict = Field(description="Summary of the indicator update")
+    cached_at: Optional[str] = Field(None, description="When the data was cached (ISO format)")
+    cache_age_minutes: Optional[int] = Field(None, description="Age of cached data in minutes")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
