@@ -6,12 +6,12 @@ import requests
 import time
 import asyncio
 import logging
-import threading
 from solana.rpc.api import Client
 from solders.pubkey import Pubkey
 from solana.rpc.types import TokenAccountOpts
 
 from ....models.schemas import WalletBalanceResponse, WalletBalanceItem, TokenBalance, TransactionInfo, TokenChange
+from ....core.cache import PriceCache, WalletCache
 
 router = APIRouter()
 
@@ -19,14 +19,8 @@ router = APIRouter()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Global price cache with threading lock for safety
-GLOBAL_PRICE_CACHE = {}
+# Cache configuration
 CACHE_EXPIRY_HOURS = 1
-CACHE_LOCK = threading.Lock()
-
-# Global wallet data cache with threading lock for safety
-GLOBAL_WALLET_CACHE = {}
-WALLET_CACHE_LOCK = threading.Lock()
 
 # Program ID labels for transaction parsing
 PROGRAM_LABELS = {
@@ -112,153 +106,58 @@ def handle_rpc_request(func, *args, max_retries=3, **kwargs):
     raise HTTPException(status_code=500, detail="Unexpected error in RPC handling")
 
 
-def get_cached_price(token_address: str) -> Optional[float]:
+async def get_cached_price(token_address: str) -> Optional[float]:
     """Get cached price if it's still valid (within 1 hour)"""
-    with CACHE_LOCK:
-        if token_address in GLOBAL_PRICE_CACHE:
-            cached_data = GLOBAL_PRICE_CACHE[token_address]
-            cached_time = cached_data['timestamp']
-            cached_price = cached_data['price']
-            
-            # Check if cache is still valid (within 1 hour)
-            if datetime.now() - cached_time < timedelta(hours=CACHE_EXPIRY_HOURS):
-                logger.debug(f"Using cached price for {token_address}: ${cached_price}")
-                return cached_price
-            else:
-                # Cache expired, remove it
-                logger.debug(f"Cache expired for {token_address}, removing")
-                del GLOBAL_PRICE_CACHE[token_address]
-        
-        return None
+    cached_price = await PriceCache.get_cached_price(token_address)
+    if cached_price is not None:
+        logger.debug(f"Using cached price for {token_address}: ${cached_price}")
+        return cached_price
+    return None
 
 
-def cache_price(token_address: str, price: Optional[float]) -> None:
+async def cache_price(token_address: str, price: Optional[float]) -> None:
     """Cache a price with current timestamp"""
-    with CACHE_LOCK:
-        GLOBAL_PRICE_CACHE[token_address] = {
-            'price': price,
-            'timestamp': datetime.now()
-        }
-        logger.debug(f"Cached price for {token_address}: ${price}")
+    await PriceCache.cache_price(token_address, price)
+    logger.debug(f"Cached price for {token_address}: ${price}")
 
 
-def get_cache_stats() -> Dict:
+async def get_cache_stats() -> Dict:
     """Get cache statistics for monitoring"""
-    with CACHE_LOCK:
-        total_entries = len(GLOBAL_PRICE_CACHE)
-        valid_entries = 0
-        expired_entries = 0
-        
-        cutoff_time = datetime.now() - timedelta(hours=CACHE_EXPIRY_HOURS)
-        
-        for token_address, cached_data in GLOBAL_PRICE_CACHE.items():
-            if cached_data['timestamp'] > cutoff_time:
-                valid_entries += 1
-            else:
-                expired_entries += 1
-        
-        return {
-            'total_entries': total_entries,
-            'valid_entries': valid_entries, 
-            'expired_entries': expired_entries,
-            'cache_expiry_hours': CACHE_EXPIRY_HOURS
-        }
+    return await PriceCache.get_stats()
 
 
-def cleanup_expired_cache() -> int:
-    """Remove expired entries from cache and return number of entries removed"""
-    with CACHE_LOCK:
-        cutoff_time = datetime.now() - timedelta(hours=CACHE_EXPIRY_HOURS)
-        expired_keys = []
-        
-        for token_address, cached_data in GLOBAL_PRICE_CACHE.items():
-            if cached_data['timestamp'] <= cutoff_time:
-                expired_keys.append(token_address)
-        
-        for key in expired_keys:
-            del GLOBAL_PRICE_CACHE[key]
-        
-        if expired_keys:
-            logger.info(f"Cleaned up {len(expired_keys)} expired price cache entries")
-        
-        return len(expired_keys)
+async def cleanup_expired_cache() -> int:
+    """Remove expired entries from cache (handled automatically by MongoDB TTL)"""
+    # MongoDB TTL handles this automatically, but we can manually clean up if needed
+    from ....core.cache import MongoCache
+    return await MongoCache.cleanup_expired(PriceCache.COLLECTION)
 
 
-def get_cached_wallet_data(wallet_address: str) -> Optional[tuple]:
+async def get_cached_wallet_data(wallet_address: str) -> Optional[tuple]:
     """Get cached wallet data if it's still valid (within 1 hour)"""
-    with WALLET_CACHE_LOCK:
-        if wallet_address in GLOBAL_WALLET_CACHE:
-            cached_data = GLOBAL_WALLET_CACHE[wallet_address]
-            cached_time = cached_data['timestamp']
-            
-            # Check if cache is still valid (within 1 hour)
-            if datetime.now() - cached_time < timedelta(hours=CACHE_EXPIRY_HOURS):
-                logger.debug(f"Using cached wallet data for {wallet_address[:8]}...")
-                return (
-                    cached_data['balances'],
-                    cached_data['total_value'],
-                    cached_data['transactions']
-                )
-            else:
-                # Cache expired, remove it
-                logger.debug(f"Wallet cache expired for {wallet_address[:8]}..., removing")
-                del GLOBAL_WALLET_CACHE[wallet_address]
-        
-        return None
+    cached_data = await WalletCache.get_cached_wallet_data(wallet_address)
+    if cached_data is not None:
+        logger.debug(f"Using cached wallet data for {wallet_address[:8]}...")
+        return cached_data
+    return None
 
 
-def cache_wallet_data(wallet_address: str, balances: Dict, total_value: float, transactions: List) -> None:
+async def cache_wallet_data(wallet_address: str, balances: Dict, total_value: float, transactions: List) -> None:
     """Cache wallet data with current timestamp"""
-    with WALLET_CACHE_LOCK:
-        GLOBAL_WALLET_CACHE[wallet_address] = {
-            'balances': balances,
-            'total_value': total_value,
-            'transactions': transactions,
-            'timestamp': datetime.now()
-        }
-        logger.info(f"Cached wallet data for {wallet_address[:8]}... with total value: ${total_value:.2f}")
+    await WalletCache.cache_wallet_data(wallet_address, balances, total_value, transactions)
+    logger.info(f"Cached wallet data for {wallet_address[:8]}... with total value: ${total_value:.2f}")
 
 
-def get_wallet_cache_stats() -> Dict:
+async def get_wallet_cache_stats() -> Dict:
     """Get wallet cache statistics for monitoring"""
-    with WALLET_CACHE_LOCK:
-        total_entries = len(GLOBAL_WALLET_CACHE)
-        valid_entries = 0
-        expired_entries = 0
-        
-        cutoff_time = datetime.now() - timedelta(hours=CACHE_EXPIRY_HOURS)
-        
-        for wallet_address, cached_data in GLOBAL_WALLET_CACHE.items():
-            if cached_data['timestamp'] > cutoff_time:
-                valid_entries += 1
-            else:
-                expired_entries += 1
-        
-        return {
-            'total_entries': total_entries,
-            'valid_entries': valid_entries,
-            'expired_entries': expired_entries,
-            'cache_expiry_hours': CACHE_EXPIRY_HOURS
-        }
+    return await WalletCache.get_stats()
 
 
-def cleanup_expired_wallet_cache() -> int:
-    """Remove expired entries from wallet cache and return number of entries removed"""
-    with WALLET_CACHE_LOCK:
-        cutoff_time = datetime.now() - timedelta(hours=CACHE_EXPIRY_HOURS)
-        expired_keys = []
-        
-        for wallet_address, cached_data in GLOBAL_WALLET_CACHE.items():
-            if cached_data['timestamp'] <= cutoff_time:
-                expired_keys.append(wallet_address)
-        
-        for key in expired_keys:
-            del GLOBAL_WALLET_CACHE[key]
-        
-        if expired_keys:
-            logger.info(f"Cleaned up {len(expired_keys)} expired wallet cache entries")
-        
-        return len(expired_keys)
+async def cleanup_expired_wallet_cache() -> int:
+    """Remove expired entries from wallet cache (handled automatically by MongoDB TTL)"""
+    # MongoDB TTL handles this automatically, but we can manually clean up if needed
+    from ....core.cache import MongoCache
+    return await MongoCache.cleanup_expired(WalletCache.COLLECTION)
 
 
 class BirdeyeDataFetcher:
@@ -268,26 +167,26 @@ class BirdeyeDataFetcher:
             logger.warning("BIRDEYE_API_KEY not found in environment variables")
         self.base_url = "https://public-api.birdeye.so"
         self.headers = {"X-API-KEY": self.api_key}
-        # Remove the instance cache since we're using global cache now
+        # Using global MongoDB cache now
         
-    def get_cache_stats(self):
+    async def get_cache_stats(self):
         """Get cache statistics"""
-        return get_cache_stats()
+        return await get_cache_stats()
     
-    def get_wallet_cache_stats(self):
+    async def get_wallet_cache_stats(self):
         """Get wallet cache statistics"""
-        return get_wallet_cache_stats()
+        return await get_wallet_cache_stats()
     
-    def get_current_price(self, token_address: str) -> Optional[float]:
+    async def get_current_price(self, token_address: str) -> Optional[float]:
         """Get current price in USD for a token (with global caching)"""
         # Check global cache first
-        cached_price = get_cached_price(token_address)
+        cached_price = await get_cached_price(token_address)
         if cached_price is not None:
             return cached_price
             
         if not self.api_key:
             logger.warning(f"No API key available for price fetching of {token_address}")
-            cache_price(token_address, None)
+            await cache_price(token_address, None)
             return None
             
         url = f"{self.base_url}/defi/price"
@@ -299,7 +198,7 @@ class BirdeyeDataFetcher:
             
             if response.status_code != 200:
                 logger.warning(f"Birdeye API request failed for {token_address} with status {response.status_code}")
-                cache_price(token_address, None)
+                await cache_price(token_address, None)
                 return None
                 
             data = response.json()
@@ -309,21 +208,21 @@ class BirdeyeDataFetcher:
             
             if 'data' in data and 'value' in data['data']:
                 price = float(data['data']['value'])
-                cache_price(token_address, price)  # Cache the result globally
+                await cache_price(token_address, price)  # Cache the result globally
                 logger.info(f"Fetched and cached price for {ADDRESS_TO_SYMBOL.get(token_address, token_address[:8]+'...')}: ${price:.4f}")
                 return price
             else:
                 logger.warning(f"Unable to fetch price data for token {token_address}")
-                cache_price(token_address, None)  # Cache None result
+                await cache_price(token_address, None)  # Cache None result
                 return None
                 
         except requests.exceptions.Timeout:
             logger.error(f"Timeout fetching price for {token_address}")
-            cache_price(token_address, None)
+            await cache_price(token_address, None)
             return None
         except Exception as e:
             logger.error(f"Error fetching price for {token_address}: {str(e)}")
-            cache_price(token_address, None)
+            await cache_price(token_address, None)
             return None
 
 
@@ -613,10 +512,10 @@ def get_recent_transactions(wallet_address: str, limit: int = 2) -> List[Transac
         return []
 
 
-def get_crypto_balances_with_value(wallet_address: str, fetcher: BirdeyeDataFetcher = None) -> tuple[Dict[str, TokenBalance], float, List[TransactionInfo]]:
+async def get_crypto_balances_with_value(wallet_address: str, fetcher: BirdeyeDataFetcher = None) -> tuple[Dict[str, TokenBalance], float, List[TransactionInfo]]:
     """Get crypto balances with USD pricing (with caching)"""
     # Check wallet data cache first
-    cached_data = get_cached_wallet_data(wallet_address)
+    cached_data = await get_cached_wallet_data(wallet_address)
     if cached_data is not None:
         logger.info(f"Using cached data for wallet {wallet_address[:8]}...")
         return cached_data
@@ -630,7 +529,7 @@ def get_crypto_balances_with_value(wallet_address: str, fetcher: BirdeyeDataFetc
     ret = {}
     
     for mint, balance in balances.items():
-        usd_price = fetcher.get_current_price(mint)
+        usd_price = await fetcher.get_current_price(mint)
         usd_value = balance * usd_price if usd_price is not None else None
         
         # Convert mint address to symbol for cleaner output
@@ -652,7 +551,7 @@ def get_crypto_balances_with_value(wallet_address: str, fetcher: BirdeyeDataFetc
     recent_transactions = get_recent_transactions(wallet_address)
     
     # Cache the results
-    cache_wallet_data(wallet_address, ret, total_value, recent_transactions)
+    await cache_wallet_data(wallet_address, ret, total_value, recent_transactions)
     
     return ret, total_value, recent_transactions
 
@@ -675,10 +574,10 @@ async def get_all_wallet_balances():
     fetcher = BirdeyeDataFetcher()
     
     # Log cache statistics
-    cache_stats = fetcher.get_cache_stats()
-    wallet_cache_stats = fetcher.get_wallet_cache_stats()
-    logger.info(f"Price cache stats: {cache_stats['valid_entries']} valid, {cache_stats['expired_entries']} expired out of {cache_stats['total_entries']} total entries")
-    logger.info(f"Wallet cache stats: {wallet_cache_stats['valid_entries']} valid, {wallet_cache_stats['expired_entries']} expired out of {wallet_cache_stats['total_entries']} total entries")
+    cache_stats = await fetcher.get_cache_stats()
+    wallet_cache_stats = await fetcher.get_wallet_cache_stats()
+    logger.info(f"Price cache stats: {cache_stats.get('valid_entries', 0)} valid, {cache_stats.get('expired_entries', 0)} expired out of {cache_stats.get('total_entries', 0)} total entries")
+    logger.info(f"Wallet cache stats: {wallet_cache_stats.get('valid_entries', 0)} valid, {wallet_cache_stats.get('expired_entries', 0)} expired out of {wallet_cache_stats.get('total_entries', 0)} total entries")
     
     wallet_items = []
     errors = []
@@ -688,9 +587,9 @@ async def get_all_wallet_balances():
             logger.info(f"Processing wallet: {address[:8]}...{address[-8:]}")
             
             # Check if we have cached data before processing
-            cached_data = get_cached_wallet_data(address)
+            cached_data = await get_cached_wallet_data(address)
             
-            balances, total_value, transactions = get_crypto_balances_with_value(address, fetcher)
+            balances, total_value, transactions = await get_crypto_balances_with_value(address, fetcher)
             
             wallet_items.append(WalletBalanceItem(
                 wallet_address=address,
@@ -734,10 +633,10 @@ async def get_all_wallet_balances():
     logger.info(f"Successfully processed {len(wallet_items)} out of {len(wallet_addresses)} wallets")
     
     # Log final cache statistics
-    final_cache_stats = fetcher.get_cache_stats()
-    final_wallet_cache_stats = fetcher.get_wallet_cache_stats()
-    logger.info(f"Final price cache stats: {final_cache_stats['valid_entries']} cached prices available for future requests")
-    logger.info(f"Final wallet cache stats: {final_wallet_cache_stats['valid_entries']} cached wallets available for future requests")
+    final_cache_stats = await fetcher.get_cache_stats()
+    final_wallet_cache_stats = await fetcher.get_wallet_cache_stats()
+    logger.info(f"Final price cache stats: {final_cache_stats.get('valid_entries', 0)} cached prices available for future requests")
+    logger.info(f"Final wallet cache stats: {final_wallet_cache_stats.get('valid_entries', 0)} cached wallets available for future requests")
     
     return WalletBalanceResponse(
         wallets=wallet_items,
@@ -747,38 +646,59 @@ async def get_all_wallet_balances():
 
 @router.get("/cache-stats")
 async def get_price_cache_stats():
-    """Get statistics about the global price and wallet caches"""
-    # Clean up expired entries first
-    cleanup_expired_cache()
-    cleanup_expired_wallet_cache()
+    """Get statistics about the MongoDB price and wallet caches"""
+    # Clean up expired entries first (though MongoDB TTL handles this automatically)
+    await cleanup_expired_cache()
+    await cleanup_expired_wallet_cache()
     
-    price_stats = get_cache_stats()
-    wallet_stats = get_wallet_cache_stats()
+    price_stats = await get_cache_stats()
+    wallet_stats = await get_wallet_cache_stats()
     
-    # Add detailed price cache info
-    with CACHE_LOCK:
+    # Add detailed cache info from MongoDB
+    from ....core.cache import MongoCache
+    
+    # Get detailed price cache entries
+    try:
+        price_collection = await MongoCache.get_collection(PriceCache.COLLECTION)
+        price_cursor = price_collection.find(
+            {"expires_at": {"$gt": datetime.utcnow()}},
+            {"key": 1, "value": 1, "updated_at": 1}
+        )
+        
         cached_tokens = []
-        for token_address, cached_data in GLOBAL_PRICE_CACHE.items():
-            symbol = ADDRESS_TO_SYMBOL.get(token_address, token_address[:8] + '...')
-            age_minutes = int((datetime.now() - cached_data['timestamp']).total_seconds() / 60)
+        async for doc in price_cursor:
+            symbol = ADDRESS_TO_SYMBOL.get(doc["key"], doc["key"][:8] + '...')
+            age_minutes = int((datetime.utcnow() - doc["updated_at"]).total_seconds() / 60)
             cached_tokens.append({
                 'symbol': symbol,
-                'price': cached_data['price'],
+                'price': doc["value"],
                 'age_minutes': age_minutes
             })
+    except Exception as e:
+        logger.error(f"Error getting detailed price cache info: {e}")
+        cached_tokens = []
     
-    # Add detailed wallet cache info
-    with WALLET_CACHE_LOCK:
+    # Get detailed wallet cache entries
+    try:
+        wallet_collection = await MongoCache.get_collection(WalletCache.COLLECTION)
+        wallet_cursor = wallet_collection.find(
+            {"expires_at": {"$gt": datetime.utcnow()}},
+            {"key": 1, "value.total_value": 1, "value.balances": 1, "value.transactions": 1, "updated_at": 1}
+        )
+        
         cached_wallets = []
-        for wallet_address, cached_data in GLOBAL_WALLET_CACHE.items():
-            age_minutes = int((datetime.now() - cached_data['timestamp']).total_seconds() / 60)
+        async for doc in wallet_cursor:
+            age_minutes = int((datetime.utcnow() - doc["updated_at"]).total_seconds() / 60)
             cached_wallets.append({
-                'wallet_address': f"{wallet_address[:8]}...{wallet_address[-8:]}",
-                'total_value': cached_data['total_value'],
-                'token_count': len(cached_data['balances']),
-                'transaction_count': len(cached_data['transactions']),
+                'wallet_address': f"{doc['key'][:8]}...{doc['key'][-8:]}",
+                'total_value': doc["value"].get("total_value", 0),
+                'token_count': len(doc["value"].get("balances", {})),
+                'transaction_count': len(doc["value"].get("transactions", [])),
                 'age_minutes': age_minutes
             })
+    except Exception as e:
+        logger.error(f"Error getting detailed wallet cache info: {e}")
+        cached_wallets = []
     
     return {
         'price_cache': {

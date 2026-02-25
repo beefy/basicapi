@@ -1,4 +1,6 @@
 from fastapi import APIRouter
+
+# Import endpoints
 from .endpoints import (
     auth,
     status_updates,
@@ -6,7 +8,8 @@ from .endpoints import (
     response_times,
     heartbeat,
     newsletter,
-    wallet
+    wallet,
+    indicators
 )
 
 api_router = APIRouter()
@@ -17,3 +20,4 @@ api_router.include_router(response_times.router, prefix="/response-times", tags=
 api_router.include_router(heartbeat.router, prefix="/heartbeat", tags=["heartbeat"])
 api_router.include_router(newsletter.router, prefix="/newsletter", tags=["newsletter"])
 api_router.include_router(wallet.router, prefix="/wallet", tags=["wallet"])
+api_router.include_router(indicators.router, prefix="/indicators", tags=["technical-indicators"])
