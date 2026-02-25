@@ -23,8 +23,8 @@ async def get_technical_indicators():
     """
     Get cached technical indicators for all supported tokens (requires authentication).
     
-    Returns cached indicator data that was last updated by the hourly cron job.
-    Does not fetch fresh data - use the cron job endpoint for refreshing.
+    Returns cached indicator data from the database. Data is refreshed on-demand
+    by calling the refresh endpoint before querying indicators.
     """
     try:
         logger.info("Fetching cached technical indicators")
@@ -36,7 +36,7 @@ async def get_technical_indicators():
             # No cached data found
             raise HTTPException(
                 status_code=404,
-                detail="No cached indicator data available. The hourly update may not have run yet."
+                detail="No cached indicator data available. Call the refresh endpoint first to generate indicators."
             )
         
         # Convert to response format
@@ -102,11 +102,10 @@ async def get_technical_indicators():
 @router.post("/indicators/refresh", dependencies=[Depends(get_current_active_user)])
 async def refresh_technical_indicators():
     """
-    Manually refresh technical indicators for all tokens (requires authentication).
+    Refresh technical indicators for all tokens (requires authentication).
     
-    This endpoint manually triggers the indicator calculation and caching process.
-    Normally this is handled by the hourly cron job, but this can be used for testing
-    or immediate updates.
+    This endpoint triggers the indicator calculation and caching process.
+    Call this endpoint to generate fresh indicator data before querying indicators.
     """
     try:
         logger.info("Starting manual refresh of technical indicators")
@@ -162,8 +161,8 @@ async def get_indicator_cache_stats():
         stats = await IndicatorCache.get_stats()
         return {
             **stats,
-            "next_refresh": "Every hour on the hour (managed by GCP cron job)",
-            "manual_refresh_available": True
+            "refresh_method": "On-demand via refresh endpoint",
+            "refresh_endpoint": "POST /indicators/indicators/refresh"
         }
     except Exception as e:
         logger.error(f"Error getting indicator cache stats: {str(e)}")
