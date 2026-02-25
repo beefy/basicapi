@@ -16,3 +16,5 @@ python-dotenv==1.0.0
 solana==0.34.3
 solders==0.21.0
 requests==2.31.0
+pandas==2.1.4
+numpy==1.26.2

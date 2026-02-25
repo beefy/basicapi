@@ -1,4 +1,6 @@
-# Import indicators endpoint
+from fastapi import APIRouter
+
+# Import endpoints
 from .endpoints import (
     auth,
     status_updates,
