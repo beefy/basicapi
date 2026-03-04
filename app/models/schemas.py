@@ -231,6 +231,36 @@ class TokenIndicators(BaseModel):
     timestamp: str = Field(description="When indicators were calculated (ISO format)")
 
 
+class CandlestickData(BaseModel):
+    """Candlestick/OHLCV data for a token at a specific time"""
+    token_symbol: str = Field(description="Token symbol (e.g., SOL, USDC)")
+    token_address: str = Field(description="Token contract address")
+    timestamp: datetime = Field(description="Candle timestamp")
+    unix_time: int = Field(description="Unix timestamp")
+    open: float = Field(description="Opening price")
+    high: float = Field(description="Highest price")
+    low: float = Field(description="Lowest price")
+    close: float = Field(description="Closing price")
+    volume: float = Field(description="Trading volume")
+    type: str = Field(default="1H", description="Candle type (1H for hourly)")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="When record was stored")
+
+
+class CandlestickDataCreate(CandlestickData):
+    """Data for creating new candlestick records"""
+    pass
+
+
+class CandlestickDataResponse(CandlestickData):
+    """Response model with MongoDB ID"""
+    id: Optional[str] = Field(alias="_id", default=None)
+
+    model_config = {
+        "populate_by_name": True,
+        "json_encoders": {ObjectId: str},
+    }
+
+
 class IndicatorsResponse(BaseModel):
     """Response containing indicators for all tokens"""
     indicators: Dict[str, Optional[TokenIndicators]] = Field(description="Indicators by token symbol")

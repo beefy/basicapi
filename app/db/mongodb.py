@@ -49,3 +49,16 @@ async def create_indexes():
     
     # Heartbeat indexes (unique on agent_name for upsert behavior)
     await db.database.heartbeat.create_index("agent_name", unique=True)
+    
+    # Candlestick data indexes for efficient querying
+    await db.database.candlestick_data.create_index([
+        ("token_symbol", 1),
+        ("timestamp", 1)
+    ])
+    await db.database.candlestick_data.create_index([
+        ("token_address", 1),
+        ("unix_time", 1)
+    ], unique=True)  # Unique to prevent duplicates
+    await db.database.candlestick_data.create_index("type")
+    await db.database.candlestick_data.create_index("created_at")
+    await db.database.heartbeat.create_index("agent_name", unique=True)
