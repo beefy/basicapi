@@ -9,7 +9,8 @@ from .endpoints import (
     heartbeat,
     newsletter,
     wallet,
-    indicators
+    indicators,
+    balances
 )
 
 api_router = APIRouter()
@@ -21,3 +22,4 @@ api_router.include_router(heartbeat.router, prefix="/heartbeat", tags=["heartbea
 api_router.include_router(newsletter.router, prefix="/newsletter", tags=["newsletter"])
 api_router.include_router(wallet.router, prefix="/wallet", tags=["wallet"])
 api_router.include_router(indicators.router, prefix="/indicators", tags=["technical-indicators"])
+api_router.include_router(balances.router, prefix="/balances", tags=["balances"])

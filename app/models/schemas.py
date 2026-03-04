@@ -268,3 +268,50 @@ class IndicatorsResponse(BaseModel):
     cached_at: Optional[str] = Field(None, description="When the data was cached (ISO format)")
     cache_age_minutes: Optional[int] = Field(None, description="Age of cached data in minutes")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+
+
+# Balance models
+class BalanceBase(BaseModel):
+    """Base balance model"""
+    agent_name: str = Field(description="Name of the agent")
+    token_name: str = Field(description="Name/symbol of the token")
+    token_amount_in_wallet: float = Field(description="Amount of tokens in wallet")
+    token_value_usd: float = Field(description="USD value of the tokens")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="When balance was recorded")
+
+
+class BalanceCreate(BalanceBase):
+    """Data for creating new balance records"""
+    pass
+
+
+class BalanceResponse(BalanceBase):
+    """Response model with MongoDB ID"""
+    id: Optional[str] = Field(alias="_id", default=None)
+
+    model_config = {
+        "populate_by_name": True,
+        "json_encoders": {ObjectId: str},
+    }
+
+
+class BalanceItem(BaseModel):
+    """Individual balance item for bulk upload"""
+    token_name: str = Field(description="Name/symbol of the token")
+    token_amount_in_wallet: float = Field(description="Amount of tokens in wallet")
+    token_value_usd: float = Field(description="USD value of the tokens")
+
+
+class BalanceUpload(BaseModel):
+    """Model for bulk balance upload"""
+    agent_name: str = Field(description="Name of the agent submitting balances")
+    balances: List[BalanceItem] = Field(description="List of token balances")
+    timestamp: Optional[datetime] = Field(default_factory=datetime.utcnow, description="When balances were recorded")
+
+
+class BalanceUploadResponse(BaseModel):
+    """Response for balance upload operation"""
+    message: str = Field(description="Success message")
+    agent_name: str = Field(description="Name of the agent")
+    records_inserted: int = Field(description="Number of balance records inserted")
+    timestamp: datetime = Field(description="When the upload was processed")
