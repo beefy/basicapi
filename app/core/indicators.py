@@ -53,9 +53,13 @@ class BirdeyeDataFetcher:
         if not self.api_key:
             raise ValueError("BIRDEYE_API_KEY not configured")
             
-        # Calculate time range
-        end_time = datetime.now()
+        # Calculate time range aligned to hour boundaries (UTC)
+        end_time_raw = datetime.utcnow()
+        # Align to the previous hour boundary to avoid incomplete candles
+        end_time = end_time_raw.replace(minute=0, second=0, microsecond=0)
         start_time = end_time - timedelta(hours=hours)
+        
+        logger.debug(f"Fetching data from {start_time} to {end_time} UTC for {token_symbol or token_address}")
         
         # Get existing data from MongoDB
         existing_data = await self._get_candlestick_from_db(token_address, start_time, end_time)
@@ -63,11 +67,14 @@ class BirdeyeDataFetcher:
         # Determine what data is missing
         missing_ranges = self._find_missing_time_ranges(existing_data, start_time, end_time)
         
+        if missing_ranges:
+            logger.info(f"Found {len(missing_ranges)} missing time ranges for {token_symbol or token_address}")
+        
         # Fetch missing data from API
         new_data_list = []
         for range_start, range_end in missing_ranges:
             try:
-                logger.info(f"Fetching missing data for {token_symbol or token_address} from {range_start} to {range_end}")
+                logger.info(f"Fetching missing data for {token_symbol or token_address} from {range_start} to {range_end} UTC")
                 api_data = await self._fetch_from_api(token_address, range_start, range_end)
                 if not api_data.empty:
                     new_data_list.append(api_data)
@@ -148,9 +155,13 @@ class BirdeyeDataFetcher:
         current_time = start_time
         
         # Convert existing timestamps to set for O(1) lookup
+        # Use hour-aligned timestamps for comparison
         existing_timestamps = set()
         if 'unix_time' in existing_data.columns:
-            existing_timestamps = set(existing_data['unix_time'])
+            for unix_time in existing_data['unix_time']:
+                # Align to hour boundary for comparison
+                hour_aligned = datetime.utcfromtimestamp(unix_time).replace(minute=0, second=0, microsecond=0)
+                existing_timestamps.add(int(hour_aligned.timestamp()))
         
         # Find gaps in hourly data
         while current_time <= end_time:
@@ -165,7 +176,9 @@ class BirdeyeDataFetcher:
                 while current_time <= end_time and int(current_time.timestamp()) not in existing_timestamps:
                     current_time += timedelta(hours=1)
                 
-                missing_ranges.append((range_start, current_time - timedelta(hours=1)))
+                # The missing range ends at the last missing hour (inclusive)
+                range_end = current_time - timedelta(hours=1)
+                missing_ranges.append((range_start, range_end))
             else:
                 current_time += timedelta(hours=1)
         
@@ -175,12 +188,18 @@ class BirdeyeDataFetcher:
         """Fetch data from Birdeye API for a specific time range"""
         url = f"{self.base_url}/defi/ohlcv"
         
+        # Convert to Unix timestamps (API expects UTC)
+        time_from = int(start_time.timestamp())
+        time_to = int(end_time.timestamp()) + 3599  # Add 59m59s to ensure we get the end hour
+        
         params = {
             "address": token_address,
             "type": "1H",
-            "time_from": int(start_time.timestamp()),
-            "time_to": int(end_time.timestamp())
+            "time_from": time_from,
+            "time_to": time_to
         }
+        
+        logger.debug(f"API request: time_from={time_from} ({start_time}), time_to={time_to} ({datetime.utcfromtimestamp(time_to)})")
         
         try:
             response = requests.get(url, headers=self.headers, params=params, timeout=10)
@@ -192,6 +211,7 @@ class BirdeyeDataFetcher:
             candles = data.get('data', {}).get('items', [])
             
             if not candles:
+                logger.warning(f"No candles returned from API for range {start_time} to {end_time}")
                 return pd.DataFrame()
                 
             # Convert to DataFrame and normalize column names immediately
@@ -209,10 +229,11 @@ class BirdeyeDataFetcher:
             
             df = df.rename(columns=column_mapping)
             
-            # Add timestamp column if not present
+                # Add timestamp column if not present
             if 'timestamp' not in df.columns and 'unix_time' in df.columns:
                 df['timestamp'] = pd.to_datetime(df['unix_time'], unit='s')
             
+            logger.debug(f"API returned {len(df)} candles")
             return df
             
         except Exception as e:
@@ -236,7 +257,7 @@ class BirdeyeDataFetcher:
                 doc = {
                     "token_symbol": token_symbol or "UNKNOWN",
                     "token_address": token_address,
-                    "timestamp": datetime.fromtimestamp(int(unix_time)),
+                    "timestamp": datetime.utcfromtimestamp(int(unix_time)),
                     "unix_time": int(unix_time),
                     "open": float(row['open']),
                     "high": float(row['high']),
