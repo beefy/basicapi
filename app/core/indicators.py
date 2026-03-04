@@ -83,14 +83,20 @@ class BirdeyeDataFetcher:
                 continue
         
         # Combine existing and new data
-        all_data = [existing_data] if not existing_data.empty else []
-        all_data.extend(new_data_list)
+        all_data = []
+        if not existing_data.empty:
+            all_data.append(existing_data)
+        if new_data_list:
+            all_data.extend(new_data_list)
         
         if not all_data:
             raise ValueError(f"No data available for {token_symbol or token_address}")
             
-        # Combine all DataFrames
-        combined_df = pd.concat(all_data, ignore_index=True) if len(all_data) > 1 else all_data[0]
+        # Combine all DataFrames - they should all have normalized column names now
+        if len(all_data) == 1:
+            combined_df = all_data[0].copy()
+        else:
+            combined_df = pd.concat(all_data, ignore_index=True)
         
         # Remove duplicates and sort
         combined_df = combined_df.drop_duplicates(subset=['unix_time'], keep='last')
@@ -188,8 +194,25 @@ class BirdeyeDataFetcher:
             if not candles:
                 return pd.DataFrame()
                 
-            # Convert to DataFrame
+            # Convert to DataFrame and normalize column names immediately
             df = pd.DataFrame(candles)
+            
+            # Convert API format to standard format immediately
+            column_mapping = {
+                'o': 'open',
+                'h': 'high',
+                'l': 'low', 
+                'c': 'close',
+                'v': 'volume',
+                'unixTime': 'unix_time'
+            }
+            
+            df = df.rename(columns=column_mapping)
+            
+            # Add timestamp column if not present
+            if 'timestamp' not in df.columns and 'unix_time' in df.columns:
+                df['timestamp'] = pd.to_datetime(df['unix_time'], unit='s')
+            
             return df
             
         except Exception as e:
@@ -204,16 +227,22 @@ class BirdeyeDataFetcher:
         try:
             documents = []
             for _, row in df.iterrows():
+                # Handle both possible timestamp column names
+                unix_time = row.get('unix_time', row.get('unixTime'))
+                if unix_time is None:
+                    logger.warning(f"No timestamp found in row: {row.keys()}")
+                    continue
+                    
                 doc = {
                     "token_symbol": token_symbol or "UNKNOWN",
                     "token_address": token_address,
-                    "timestamp": datetime.fromtimestamp(row['unixTime']),
-                    "unix_time": int(row['unixTime']),
-                    "open": float(row['o']),
-                    "high": float(row['h']),
-                    "low": float(row['l']),
-                    "close": float(row['c']),
-                    "volume": float(row['v']),
+                    "timestamp": datetime.fromtimestamp(int(unix_time)),
+                    "unix_time": int(unix_time),
+                    "open": float(row['open']),
+                    "high": float(row['high']),
+                    "low": float(row['low']),
+                    "close": float(row['close']),
+                    "volume": float(row['volume']),
                     "type": "1H",
                     "created_at": datetime.utcnow()
                 }
@@ -242,29 +271,23 @@ class BirdeyeDataFetcher:
             # Don't raise here - we can still continue even if storage fails
     
     def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert MongoDB/API data to the expected DataFrame format"""
+        """Convert normalized data to the expected DataFrame format for process_candles"""
         if df.empty:
             return df
-            
-        # Handle both MongoDB format and API format
-        if 'unix_time' in df.columns and 'timestamp' in df.columns:
-            # MongoDB format
-            df = df.rename(columns={
-                'unix_time': 'unixTime'
-            })
         
-        # Ensure we have the expected column names for process_candles
-        if 'open' not in df.columns and 'o' in df.columns:
-            # API format - convert to expected format
-            df = df.rename(columns={
-                'o': 'open',
-                'h': 'high',
-                'l': 'low',
-                'c': 'close',
-                'v': 'volume'
-            })
+        # At this point, all data should be in normalized format with standard column names
+        # Ensure required columns exist
+        required_cols = ['open', 'high', 'low', 'close', 'volume', 'unix_time']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing required columns after normalization: {missing_cols}")
         
-        return self.process_candles(df.to_dict('records'))
+        # Rename unix_time to unixTime for process_candles compatibility
+        df_prepared = df.copy()
+        if 'unix_time' in df_prepared.columns:
+            df_prepared = df_prepared.rename(columns={'unix_time': 'unixTime'})
+        
+        return self.process_candles(df_prepared.to_dict('records'))
     
     def get_current_price(self, token_address: str) -> float:
         """
