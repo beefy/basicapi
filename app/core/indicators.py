@@ -9,6 +9,7 @@ import time
 import logging
 from typing import Dict, Optional, List
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pymongo import UpdateOne
 from ..db.mongodb import get_database
 from ..models.schemas import CandlestickData, CandlestickDataCreate
 
@@ -273,16 +274,16 @@ class BirdeyeDataFetcher:
                 # Use upsert to avoid duplicates
                 operations = []
                 for doc in documents:
-                    operations.append({
-                        "updateOne": {
-                            "filter": {
-                                "token_address": doc["token_address"],
-                                "unix_time": doc["unix_time"]
-                            },
-                            "update": {"$set": doc},
-                            "upsert": True
-                        }
-                    })
+                    # Use PyMongo's UpdateOne class for proper bulk operation format
+                    operation = UpdateOne(
+                        filter={
+                            "token_address": doc["token_address"],
+                            "unix_time": doc["unix_time"]
+                        },
+                        update={"$set": doc},
+                        upsert=True
+                    )
+                    operations.append(operation)
                 
                 await self.database.candlestick_data.bulk_write(operations, ordered=False)
                 logger.info(f"Stored {len(documents)} candlestick records for {token_symbol}")
