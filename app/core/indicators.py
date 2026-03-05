@@ -114,7 +114,7 @@ class BirdeyeDataFetcher:
         
     async def _get_candlestick_from_db(self, token_address: str, start_time: datetime, end_time: datetime) -> pd.DataFrame:
         """Retrieve existing candlestick data from MongoDB"""
-        if not self.database:
+        if self.database is None:
             return pd.DataFrame()
             
         try:
@@ -242,7 +242,7 @@ class BirdeyeDataFetcher:
     
     async def _store_candlestick_data(self, token_address: str, token_symbol: str, df: pd.DataFrame) -> None:
         """Store new candlestick data in MongoDB"""
-        if not self.database or df.empty:
+        if self.database is None or df.empty:
             return
             
         try:
