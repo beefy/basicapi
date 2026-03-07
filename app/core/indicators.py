@@ -56,8 +56,8 @@ class BirdeyeDataFetcher:
             
         # Calculate time range aligned to hour boundaries (UTC)
         end_time_raw = datetime.utcnow()
-        # Align to the previous hour boundary to avoid incomplete candles
-        end_time = end_time_raw.replace(minute=0, second=0, microsecond=0)
+        # Align to the previous hour boundary, then go back one more hour to ensure data is fully settled
+        end_time = end_time_raw.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
         start_time = end_time - timedelta(hours=hours)
         
         logger.debug(f"Fetching data from {start_time} to {end_time} UTC for {token_symbol or token_address}")

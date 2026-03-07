@@ -32,8 +32,29 @@ async def get_technical_indicators():
         # Get all cached indicators
         cached_indicators = await IndicatorCache.get_all_cached_indicators()
         
+        logger.info(f"Retrieved {len(cached_indicators)} cached items from database")
+        
         if not cached_indicators:
-            # No cached data found
+            # No cached data found - let's get more details for debugging
+            try:
+                cache_stats = await IndicatorCache.get_stats()
+                logger.error(f"No cached indicators found. Cache stats: {cache_stats}")
+                
+                # Also try to get any cached data (including expired) for debugging
+                from ....core.cache import MongoCache
+                collection = await MongoCache.get_collection(IndicatorCache.COLLECTION)
+                total_docs = await collection.count_documents({})
+                logger.error(f"Total documents in {IndicatorCache.COLLECTION}: {total_docs}")
+                
+                if total_docs > 0:
+                    # Get some sample documents for debugging
+                    sample_docs = await collection.find({}).limit(3).to_list(3)
+                    for doc in sample_docs:
+                        logger.error(f"Sample cache document: key={doc.get('key')}, expires_at={doc.get('expires_at')}, updated_at={doc.get('updated_at')}")
+                
+            except Exception as debug_e:
+                logger.error(f"Error during debug information gathering: {debug_e}")
+            
             raise HTTPException(
                 status_code=404,
                 detail="No cached indicator data available. Call the refresh endpoint first to generate indicators."
@@ -79,7 +100,7 @@ async def get_technical_indicators():
         # Use cached timestamp if available
         cached_at = oldest_timestamp.isoformat() if oldest_timestamp else None
         
-        logger.info(f"Retrieved {len([v for v in indicators.values() if v is not None])} cached indicators")
+        logger.info(f"Successfully retrieved {len([v for v in indicators.values() if v is not None])} cached indicators, cache age: {cache_age_minutes} minutes")
         
         return IndicatorsResponse(
             indicators=indicators,
@@ -113,9 +134,10 @@ async def refresh_technical_indicators():
         # Run the indicator calculation
         results = await get_all_token_indicators()
         
-        # Cache each token's indicators individually
+        # Cache each token's indicators individually with better error handling
         cached_count = 0
         errors = []
+        cache_verification_failed = []
         
         for token_symbol, indicator_data in results.items():
             if token_symbol == "_summary":
@@ -123,29 +145,81 @@ async def refresh_technical_indicators():
                 
             try:
                 if indicator_data is not None:
+                    # Cache the indicators
                     await IndicatorCache.cache_indicators(token_symbol, indicator_data)
-                    cached_count += 1
+                    logger.info(f"Successfully cached indicators for {token_symbol}")
+                    
+                    # Verify the cache was written by immediately trying to read it back
+                    verification = await IndicatorCache.get_cached_indicators(token_symbol)
+                    if verification is None:
+                        cache_verification_failed.append(token_symbol)
+                        logger.error(f"Cache verification failed for {token_symbol} - data not found immediately after caching")
+                    else:
+                        cached_count += 1
+                        logger.debug(f"Cache verification successful for {token_symbol}")
                 else:
-                    errors.append(f"No data calculated for {token_symbol}")
+                    error_msg = f"No data calculated for {token_symbol}"
+                    logger.warning(error_msg)
+                    errors.append(error_msg)
             except Exception as e:
                 error_msg = f"Error caching {token_symbol}: {str(e)}"
-                logger.error(error_msg)
+                logger.error(error_msg, exc_info=True)
                 errors.append(error_msg)
         
-        summary = results.get('_summary', {})
+        # Also cache the summary information
+        summary_info = results.get('_summary', {})
+        if summary_info:
+            try:
+                await IndicatorCache.cache_indicators("_summary", summary_info)
+                logger.info("Successfully cached summary information")
+            except Exception as e:
+                logger.error(f"Error caching summary: {str(e)}", exc_info=True)
+                errors.append(f"Error caching summary: {str(e)}")
+        
+        # Final verification - check if any indicators are available at all
+        try:
+            all_cached = await IndicatorCache.get_all_cached_indicators()
+            logger.info(f"Final verification: {len(all_cached)} total items in cache")
+            if len(all_cached) == 0:
+                logger.error("CRITICAL: No cached indicators found after refresh operation!")
+                errors.append("CRITICAL: Cache verification failed - no indicators found after refresh")
+        except Exception as e:
+            logger.error(f"Error during final cache verification: {str(e)}", exc_info=True)
+            errors.append(f"Cache verification error: {str(e)}")
+        
+        # Update summary with cache information
+        summary = summary_info.copy()
         summary['cached_count'] = cached_count
         summary['cache_errors'] = errors
+        summary['cache_verification_failed'] = cache_verification_failed
+        summary['total_tokens_processed'] = len([k for k in results.keys() if k != '_summary'])
         
-        logger.info(f"Manually refreshed indicators: {cached_count} tokens cached, {len(errors)} errors")
+        logger.info(f"Manually refreshed indicators: {cached_count} tokens cached successfully, {len(cache_verification_failed)} verification failures, {len(errors)} errors")
         
-        return {
-            "message": "Indicators refreshed successfully",
+        # Return success even if some tokens failed, but include detailed error information
+        response = {
+            "message": "Indicators refresh completed",
+            "success": cached_count > 0,
             "summary": summary,
             "cached_count": cached_count,
+            "verification_failures": cache_verification_failed,
             "errors": errors,
             "timestamp": datetime.utcnow()
         }
         
+        # If nothing was cached successfully, this is a critical error
+        if cached_count == 0:
+            logger.error("CRITICAL: No indicators were successfully cached!")
+            raise HTTPException(
+                status_code=500,
+                detail="No indicators were successfully cached. See errors for details."
+            )
+            
+        return response
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
         logger.error(f"Error manually refreshing indicators: {str(e)}", exc_info=True)
         raise HTTPException(

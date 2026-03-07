@@ -33,17 +33,23 @@ class MongoCache:
             }
             
             # Upsert the document
-            await collection.replace_one(
+            result = await collection.replace_one(
                 {"key": key}, 
                 cache_doc, 
                 upsert=True
             )
             
-            logger.debug(f"Cached {key} in {collection_name} (expires: {expires_at})")
+            logger.debug(f"Cached {key} in {collection_name} (expires: {expires_at}, upserted: {result.upserted_id is not None})")
+            
+            # Verify the write was successful
+            if result.matched_count == 0 and result.upserted_id is None:
+                logger.error(f"Cache write failed for {key} in {collection_name} - no documents matched or upserted")
+                return False
+                
             return True
             
         except Exception as e:
-            logger.error(f"Error setting cache for {key}: {str(e)}")
+            logger.error(f"Error setting cache for {key} in {collection_name}: {str(e)}")
             return False
 
     @staticmethod  
@@ -240,14 +246,24 @@ class IndicatorCache:
     
     @staticmethod
     async def cache_indicators(token_symbol: str, indicators: Dict) -> None:
-        """Cache indicator data with TTL"""
-        await MongoCache.set_cache(
-            IndicatorCache.COLLECTION,
-            token_symbol,
-            indicators,
-            IndicatorCache.TTL_HOURS
-        )
-        logger.info(f"Cached indicators for {token_symbol}")
+        """Cache indicator data with TTL and verification"""
+        try:
+            await MongoCache.set_cache(
+                IndicatorCache.COLLECTION,
+                token_symbol,
+                indicators,
+                IndicatorCache.TTL_HOURS
+            )
+            logger.info(f"Cached indicators for {token_symbol} with {len(indicators)} fields")
+            
+            # Verify the cache was written successfully
+            verification = await MongoCache.get_cache(IndicatorCache.COLLECTION, token_symbol)
+            if verification is None:
+                raise Exception(f"Cache verification failed - data not found after caching for {token_symbol}")
+                
+        except Exception as e:
+            logger.error(f"Error caching indicators for {token_symbol}: {str(e)}")
+            raise
     
     @staticmethod
     async def get_all_cached_indicators() -> Dict[str, Dict]:
@@ -262,8 +278,27 @@ class IndicatorCache:
             })
             
             result = {}
+            valid_count = 0
             async for doc in cursor:
                 result[doc["key"]] = doc["value"]
+                valid_count += 1
+            
+            # Also check for expired entries for debugging
+            expired_count = await collection.count_documents({
+                "expires_at": {"$lte": now}
+            })
+            
+            total_count = await collection.count_documents({})
+            
+            logger.info(f"Retrieved {valid_count} valid indicators, {expired_count} expired, {total_count} total in cache")
+            
+            if valid_count == 0 and total_count > 0:
+                # We have entries but they're all expired - log some details
+                sample_expired = await collection.find({
+                    "expires_at": {"$lte": now}
+                }).limit(3).to_list(3)
+                for doc in sample_expired:
+                    logger.warning(f"Expired cache entry: key={doc.get('key')}, expires_at={doc.get('expires_at')}, age_minutes={(now - doc.get('expires_at', now)).total_seconds() / 60:.1f}")
             
             return result
             
