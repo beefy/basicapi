@@ -374,15 +374,45 @@ class BirdeyeDataFetcher:
         for col in required_cols:
             df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        df['datetime'] = pd.to_datetime(df['unixTime'], unit='s')
+        # Check if numeric conversion resulted in all NaN values
+        numeric_nan_counts = {col: df[col].isna().sum() for col in required_cols}
+        all_nan_cols = [col for col, nan_count in numeric_nan_counts.items() if nan_count == len(df)]
+        if all_nan_cols:
+            raise ValueError(f"Numeric conversion failed - all values are NaN for columns: {all_nan_cols}")
+        
+        # Check if unixTime column exists for datetime conversion
+        if 'unixTime' not in df.columns:
+            raise ValueError("Missing 'unixTime' column required for datetime conversion")
+        
+        # Check for valid unix timestamps
+        invalid_timestamps = df['unixTime'].isna().sum()
+        if invalid_timestamps == len(df):
+            raise ValueError("All unix timestamps are invalid/NaN")
+        
+        df['datetime'] = pd.to_datetime(df['unixTime'], unit='s', errors='coerce')
+        
+        # Check if datetime conversion failed
+        invalid_datetime_count = df['datetime'].isna().sum()
+        if invalid_datetime_count == len(df):
+            raise ValueError("All datetime conversions failed - invalid unix timestamps")
+        
         df.set_index('datetime', inplace=True)
         df.sort_index(inplace=True)
+        
+        # Check data before dropna
+        rows_before_dropna = len(df)
+        if rows_before_dropna == 0:
+            raise ValueError("All rows lost during datetime processing")
         
         # Remove any rows with NaN values
         df = df.dropna()
         
+        # Check how many rows were dropped
+        rows_after_dropna = len(df)
+        rows_dropped = rows_before_dropna - rows_after_dropna
+        
         if df.empty:
-            raise ValueError("No valid market data after processing")
+            raise ValueError(f"No valid market data after processing - {rows_dropped} rows dropped due to NaN values out of {rows_before_dropna} total rows")
             
         return df
 
