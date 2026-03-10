@@ -114,12 +114,21 @@ class BirdeyeDataFetcher:
         
         # Check data quality before deduplication
         required_cols_check = ['open', 'high', 'low', 'close', 'volume', 'unix_time']
-        for col in required_cols_check:
-            if col in combined_df.columns:
+        
+        # Comprehensive analysis of all columns
+        logger.debug(f"Pre-dedup column analysis:")
+        for col in combined_df.columns:
+            if col in required_cols_check:
                 nan_count = combined_df[col].isna().sum()
-                if nan_count > 0:
-                    logger.warning(f"Column '{col}' has {nan_count} NaN values before processing")
+                dtype = combined_df[col].dtype
+                sample_vals = combined_df[col].dropna().head(3).tolist() if not combined_df[col].isna().all() else []
+                logger.debug(f"  {col}: {nan_count} NaN/{len(combined_df)}, dtype={dtype}, samples={sample_vals}")
             else:
+                nan_count = combined_df[col].isna().sum()
+                logger.debug(f"  {col} (extra): {nan_count} NaN/{len(combined_df)} rows")
+                
+        for col in required_cols_check:
+            if col not in combined_df.columns:
                 logger.error(f"Missing required column '{col}' in combined dataframe")
         
         # Remove duplicates and sort
@@ -405,6 +414,11 @@ class BirdeyeDataFetcher:
         logger.debug(f"Initial DataFrame columns: {df.columns.tolist()}")
         logger.debug(f"Initial DataFrame shape: {df.shape}")
         
+        # Log sample of input data to debug column issues
+        if len(candles) > 0:
+            logger.debug(f"Sample input record: {candles[0]}")
+            logger.debug(f"All input record keys: {set().union(*(d.keys() for d in candles[:5]))}")
+        
         # Map API column names to standard OHLCV names
         column_mapping = {
             'o': 'open',
@@ -479,6 +493,15 @@ class BirdeyeDataFetcher:
             logger.error(f"All datetime conversions failed. Sample unix times: {sample_unix_times}")
             raise ValueError("All datetime conversions failed - invalid unix timestamps")
         
+        # Check for NaN datetime values before setting as index
+        datetime_nan_count = df['datetime'].isna().sum()
+        if datetime_nan_count > 0:
+            logger.warning(f"Found {datetime_nan_count} rows with invalid datetime values")
+            # Log sample problematic unix timestamps
+            bad_datetime_mask = df['datetime'].isna()
+            bad_unix_times = df.loc[bad_datetime_mask, 'unixTime'].head(5).tolist()
+            logger.warning(f"Sample bad unix timestamps: {bad_unix_times}")
+        
         df.set_index('datetime', inplace=True)
         df.sort_index(inplace=True)
         
@@ -486,19 +509,33 @@ class BirdeyeDataFetcher:
         rows_before_dropna = len(df)
         if rows_before_dropna == 0:
             raise ValueError("All rows lost during datetime processing")
+            
+        # Log complete DataFrame info before dropna
+        logger.debug(f"Pre-dropna DataFrame info:")
+        logger.debug(f"  Shape: {df.shape}")
+        logger.debug(f"  Columns: {df.columns.tolist()}")
+        logger.debug(f"  Index name: {df.index.name}")
+        logger.debug(f"  Index NaN count: {df.index.isna().sum()}")
         
-        # Detailed analysis before dropping NaN values
+        # Detailed analysis before dropping NaN values - check ALL columns
         nan_analysis = {}
-        for col in required_cols:
+        logger.debug(f"All DataFrame columns before dropna: {df.columns.tolist()}")
+        
+        for col in df.columns:
             nan_count = df[col].isna().sum()
             if nan_count > 0:
                 nan_analysis[col] = nan_count
         
         if nan_analysis:
-            logger.warning(f"NaN values detected before dropna: {nan_analysis}")
+            logger.error(f"NaN values detected before dropna in ALL columns: {nan_analysis}")
+            # Log sample rows with NaN values
+            nan_mask = df.isna().any(axis=1)
+            sample_nan_rows = df[nan_mask].head(3)
+            logger.error(f"Sample rows with NaN values: {sample_nan_rows.to_dict('records')}")
         
-        # Remove any rows with NaN values
-        df_clean = df.dropna()
+        # Only drop rows that have NaN in the required OHLCV columns, not ALL columns
+        # This prevents dropping rows due to NaN in metadata columns
+        df_clean = df.dropna(subset=required_cols)
         
         # Check how many rows were dropped
         rows_after_dropna = len(df_clean)
@@ -508,8 +545,11 @@ class BirdeyeDataFetcher:
             logger.error(f"Data processing failure summary:")
             logger.error(f"- Initial rows: {rows_before_dropna}")
             logger.error(f"- Rows dropped: {rows_dropped}")
-            logger.error(f"- NaN analysis: {nan_analysis}")
-            logger.error(f"- Conversion issues: {conversion_issues}")
+            logger.error(f"- NaN analysis (all columns): {nan_analysis}")
+            logger.error(f"- Conversion issues (OHLCV): {conversion_issues}")
+            logger.error(f"- DataFrame shape before dropna: {df.shape}")
+            logger.error(f"- DataFrame columns: {df.columns.tolist()}")
+            logger.error(f"- Required columns subset: {required_cols}")
             raise ValueError(f"No valid market data after processing - {rows_dropped} rows dropped due to NaN values out of {rows_before_dropna} total rows. Check logs for detailed analysis.")
             
         logger.debug(f"Successfully processed {rows_after_dropna} rows ({rows_dropped} dropped)")
