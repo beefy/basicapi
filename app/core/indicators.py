@@ -93,8 +93,11 @@ class BirdeyeDataFetcher:
         # Combine existing and new data
         all_data = []
         if not existing_data.empty:
+            logger.debug(f"Adding {len(existing_data)} existing rows from MongoDB")
             all_data.append(existing_data)
         if new_data_list:
+            total_new = sum(len(df) for df in new_data_list)
+            logger.debug(f"Adding {total_new} new rows from {len(new_data_list)} API calls")
             all_data.extend(new_data_list)
         
         if not all_data:
@@ -106,9 +109,24 @@ class BirdeyeDataFetcher:
         else:
             combined_df = pd.concat(all_data, ignore_index=True)
         
+        logger.debug(f"Combined dataframe shape before dedup: {combined_df.shape}")
+        logger.debug(f"Combined dataframe columns: {combined_df.columns.tolist()}")
+        
+        # Check data quality before deduplication
+        required_cols_check = ['open', 'high', 'low', 'close', 'volume', 'unix_time']
+        for col in required_cols_check:
+            if col in combined_df.columns:
+                nan_count = combined_df[col].isna().sum()
+                if nan_count > 0:
+                    logger.warning(f"Column '{col}' has {nan_count} NaN values before processing")
+            else:
+                logger.error(f"Missing required column '{col}' in combined dataframe")
+        
         # Remove duplicates and sort
         combined_df = combined_df.drop_duplicates(subset=['unix_time'], keep='last')
         combined_df = combined_df.sort_values('unix_time').reset_index(drop=True)
+        
+        logger.debug(f"Combined dataframe shape after dedup: {combined_df.shape}")
         
         # Convert to the expected format and return
         return self._prepare_dataframe(combined_df)
@@ -132,13 +150,44 @@ class BirdeyeDataFetcher:
             if not documents:
                 return pd.DataFrame()
                 
+            logger.debug(f"Retrieved {len(documents)} documents from MongoDB for {token_address}")
+                
             # Convert to DataFrame
             df = pd.DataFrame(documents)
             
             # Ensure required columns exist
             required_cols = ['open', 'high', 'low', 'close', 'volume', 'unix_time']
             if not all(col in df.columns for col in required_cols):
-                logger.warning("Missing required columns in MongoDB data")
+                logger.warning(f"Missing required columns in MongoDB data. Available: {df.columns.tolist()}")
+                return pd.DataFrame()
+            
+            # Debug data types from MongoDB
+            logger.debug(f"MongoDB data types: {df[required_cols].dtypes.to_dict()}")
+            
+            # Ensure numeric types for OHLCV data - MongoDB might store as strings or other types
+            for col in ['open', 'high', 'low', 'close', 'volume']:
+                original_type = df[col].dtype
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                nan_count = df[col].isna().sum()
+                if nan_count > 0:
+                    logger.warning(f"MongoDB column '{col}' had {nan_count} NaN values after numeric conversion from {original_type}")
+                    # Log sample values that failed conversion
+                    sample_docs = [doc for doc in documents[:3]]
+                    logger.warning(f"Sample MongoDB documents: {sample_docs}")
+            
+            # Ensure unix_time is numeric
+            if 'unix_time' in df.columns:
+                df['unix_time'] = pd.to_numeric(df['unix_time'], errors='coerce')
+                
+            # Check for completely invalid data
+            valid_rows = df[required_cols].dropna().shape[0]
+            total_rows = df.shape[0]
+            logger.debug(f"MongoDB data validation: {valid_rows}/{total_rows} valid rows")
+            
+            if valid_rows == 0 and total_rows > 0:
+                logger.error(f"All {total_rows} MongoDB rows became invalid after type conversion")
+                # Log first few rows for debugging
+                logger.error(f"First 3 raw MongoDB entries: {documents[:3]}")
                 return pd.DataFrame()
                 
             return df
@@ -350,7 +399,11 @@ class BirdeyeDataFetcher:
         if not candles:
             raise ValueError("No candle data returned from API")
             
+        logger.debug(f"Processing {len(candles)} candle records")
         df = pd.DataFrame(candles)
+        
+        logger.debug(f"Initial DataFrame columns: {df.columns.tolist()}")
+        logger.debug(f"Initial DataFrame shape: {df.shape}")
         
         # Map API column names to standard OHLCV names
         column_mapping = {
@@ -363,30 +416,58 @@ class BirdeyeDataFetcher:
         
         # Rename columns if they exist
         df = df.rename(columns=column_mapping)
+        logger.debug(f"DataFrame columns after mapping: {df.columns.tolist()}")
         
         # Ensure we have required columns
         required_cols = ['open', 'high', 'low', 'close', 'volume']
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
+            logger.error(f"Available columns: {df.columns.tolist()}")
             raise ValueError(f"Missing required columns: {missing_cols}")
         
-        # Convert to numeric types
+        # Debug data types before numeric conversion
+        logger.debug(f"Data types before numeric conversion: {df[required_cols].dtypes.to_dict()}")
+        
+        # Log sample values before conversion to identify data issues
         for col in required_cols:
+            sample_values = df[col].head(3).tolist()
+            logger.debug(f"Sample values for {col}: {sample_values}")
+        
+        # Convert to numeric types
+        conversion_issues = {}
+        for col in required_cols:
+            original_values = df[col].copy()
             df[col] = pd.to_numeric(df[col], errors='coerce')
+            nan_count = df[col].isna().sum()
+            if nan_count > 0:
+                # Find the problematic values
+                problematic_mask = df[col].isna() & original_values.notna()
+                problematic_values = original_values[problematic_mask].unique()[:5]
+                conversion_issues[col] = {
+                    'nan_count': nan_count,
+                    'total_count': len(df),
+                    'sample_problematic_values': problematic_values.tolist()
+                }
+                logger.warning(f"Column '{col}': {nan_count}/{len(df)} values became NaN. Sample problematic values: {problematic_values.tolist()}")
         
         # Check if numeric conversion resulted in all NaN values
         numeric_nan_counts = {col: df[col].isna().sum() for col in required_cols}
         all_nan_cols = [col for col, nan_count in numeric_nan_counts.items() if nan_count == len(df)]
         if all_nan_cols:
+            logger.error(f"Complete numeric conversion failure for columns: {all_nan_cols}")
+            logger.error(f"Conversion issues summary: {conversion_issues}")
             raise ValueError(f"Numeric conversion failed - all values are NaN for columns: {all_nan_cols}")
         
         # Check if unixTime column exists for datetime conversion
         if 'unixTime' not in df.columns:
+            logger.error(f"Available columns: {df.columns.tolist()}")
             raise ValueError("Missing 'unixTime' column required for datetime conversion")
         
         # Check for valid unix timestamps
         invalid_timestamps = df['unixTime'].isna().sum()
         if invalid_timestamps == len(df):
+            sample_unix_times = df['unixTime'].head(5).tolist()
+            logger.error(f"All unix timestamps invalid. Sample values: {sample_unix_times}")
             raise ValueError("All unix timestamps are invalid/NaN")
         
         df['datetime'] = pd.to_datetime(df['unixTime'], unit='s', errors='coerce')
@@ -394,6 +475,8 @@ class BirdeyeDataFetcher:
         # Check if datetime conversion failed
         invalid_datetime_count = df['datetime'].isna().sum()
         if invalid_datetime_count == len(df):
+            sample_unix_times = df['unixTime'].head(5).tolist()
+            logger.error(f"All datetime conversions failed. Sample unix times: {sample_unix_times}")
             raise ValueError("All datetime conversions failed - invalid unix timestamps")
         
         df.set_index('datetime', inplace=True)
@@ -404,17 +487,33 @@ class BirdeyeDataFetcher:
         if rows_before_dropna == 0:
             raise ValueError("All rows lost during datetime processing")
         
+        # Detailed analysis before dropping NaN values
+        nan_analysis = {}
+        for col in required_cols:
+            nan_count = df[col].isna().sum()
+            if nan_count > 0:
+                nan_analysis[col] = nan_count
+        
+        if nan_analysis:
+            logger.warning(f"NaN values detected before dropna: {nan_analysis}")
+        
         # Remove any rows with NaN values
-        df = df.dropna()
+        df_clean = df.dropna()
         
         # Check how many rows were dropped
-        rows_after_dropna = len(df)
+        rows_after_dropna = len(df_clean)
         rows_dropped = rows_before_dropna - rows_after_dropna
         
-        if df.empty:
-            raise ValueError(f"No valid market data after processing - {rows_dropped} rows dropped due to NaN values out of {rows_before_dropna} total rows")
+        if df_clean.empty:
+            logger.error(f"Data processing failure summary:")
+            logger.error(f"- Initial rows: {rows_before_dropna}")
+            logger.error(f"- Rows dropped: {rows_dropped}")
+            logger.error(f"- NaN analysis: {nan_analysis}")
+            logger.error(f"- Conversion issues: {conversion_issues}")
+            raise ValueError(f"No valid market data after processing - {rows_dropped} rows dropped due to NaN values out of {rows_before_dropna} total rows. Check logs for detailed analysis.")
             
-        return df
+        logger.debug(f"Successfully processed {rows_after_dropna} rows ({rows_dropped} dropped)")
+        return df_clean
 
 
 class IndicatorCalculator:
