@@ -7,7 +7,7 @@ from ....models.schemas import (
     NewsletterEmailResponse,
     User
 )
-from ....core.deps import get_current_user
+from ....core.deps import get_current_active_user_non_video_edit
 
 router = APIRouter()
 
@@ -70,7 +70,7 @@ async def unsubscribe_from_newsletter(
 
 @router.get("/", response_model=List[NewsletterEmailResponse])
 async def get_newsletter_emails(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user_non_video_edit),
     limit: int = Query(100, le=1000, description="Number of records to return"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     db=Depends(get_database)

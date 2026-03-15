@@ -10,7 +10,7 @@ from ....models.schemas import (
     QueryParams,
     User
 )
-from ....core.deps import get_current_user
+from ....core.deps import get_current_active_user_non_video_edit
 
 router = APIRouter()
 
@@ -18,7 +18,7 @@ router = APIRouter()
 @router.post("/upload", response_model=BalanceUploadResponse)
 async def upload_balances(
     balance_upload: BalanceUpload,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user_non_video_edit),
     db=Depends(get_database)
 ):
     """Upload multiple balance records for an agent (requires authentication)"""

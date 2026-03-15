@@ -78,6 +78,21 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 
+async def get_current_active_user_non_video_edit(current_user: User = Depends(get_current_user)) -> User:
+    """Get current active user (not disabled) with restriction for video edit user"""
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    
+    # Check if user is the video edit user and deny access
+    if current_user.username == settings.allowed_user_video_edit_1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Access denied. Video edit user cannot access this endpoint."
+        )
+    
+    return current_user
+
+
 async def create_user(username: str, password: str, full_name: str = None) -> dict:
     """Create a new user"""
     from ..core.config import settings

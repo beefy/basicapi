@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     allowed_user_1: str = ""
     allowed_user_2: str = ""
     allowed_user_3: str = ""
+    allowed_user_video_edit_1: str = ""
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     
@@ -29,7 +30,7 @@ class Settings(BaseSettings):
     def get_allowed_usernames(self) -> list:
         """Get list of allowed usernames from individual environment variables"""
         usernames = []
-        for user in [self.allowed_user_1, self.allowed_user_2, self.allowed_user_3]:
+        for user in [self.allowed_user_1, self.allowed_user_2, self.allowed_user_3, self.allowed_user_video_edit_1]:
             if user.strip():
                 usernames.append(user.strip())
         return usernames

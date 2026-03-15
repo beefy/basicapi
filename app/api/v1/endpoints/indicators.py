@@ -7,7 +7,7 @@ import logging
 import asyncio
 
 from ....models.schemas import IndicatorsResponse, TokenIndicators
-from ....core.deps import get_current_active_user
+from ....core.deps import get_current_active_user_non_video_edit
 from ....core.cache import IndicatorCache
 from ....core.indicators import get_all_token_indicators
 
@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-@router.get("/indicators", response_model=IndicatorsResponse, dependencies=[Depends(get_current_active_user)])
+@router.get("/indicators", response_model=IndicatorsResponse, dependencies=[Depends(get_current_active_user_non_video_edit)])
 async def get_technical_indicators():
     """
     Get cached technical indicators for all supported tokens (requires authentication).
@@ -120,7 +120,7 @@ async def get_technical_indicators():
         )
 
 
-@router.post("/indicators/refresh", dependencies=[Depends(get_current_active_user)])
+@router.post("/indicators/refresh", dependencies=[Depends(get_current_active_user_non_video_edit)])
 async def refresh_technical_indicators():
     """
     Refresh technical indicators for all tokens (requires authentication).
@@ -228,7 +228,7 @@ async def refresh_technical_indicators():
         )
 
 
-@router.get("/indicators/cache-stats", dependencies=[Depends(get_current_active_user)])
+@router.get("/indicators/cache-stats", dependencies=[Depends(get_current_active_user_non_video_edit)])
 async def get_indicator_cache_stats():
     """Get statistics about the indicator cache (requires authentication)"""
     try:
